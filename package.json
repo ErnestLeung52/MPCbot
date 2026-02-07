@@ -1,0 +1,23 @@
+{
+  "name": "mpcbot",
+  "version": "1.0.0",
+  "description": "Undetectable Chrome automation app with Patchright and Google Sheets integration",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test-setup.js",
+    "validate": "node test-setup.js",
+    "test-sheets": "node -e \"require('./src/services/googleSheets').initialize().then(() => console.log('✓ Google Sheets connected successfully!')).catch(e => console.error('❌ Connection failed:', e.message))\"",
+    "test-detection": "node test-detection.js"
+  },
+  "keywords": ["automation", "patchright", "browser", "stealth"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "patchright": "^1.49.1",
+    "googleapis": "^128.0.0",
+    "dotenv": "^16.4.5",
+    "winston": "^3.11.0"
+  }
+}
