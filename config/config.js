@@ -1,10 +1,11 @@
 require('dotenv').config();
+const sheetMapping = require('./sheetMapping');
 
 const config = {
   // Google Sheets Configuration
   googleSheets: {
     spreadsheetId: process.env.GOOGLE_SHEETS_ID,
-    sheetName: process.env.GOOGLE_SHEET_NAME || 'Sheet1',
+    sheetName: sheetMapping.SHEET_NAME,
     credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS || './credentials.json'
   },
 
@@ -55,18 +56,23 @@ const config = {
     dir: './logs'
   },
 
-  // Form Field Selectors (customize based on target website)
-  formSelectors: {
-    // Example selectors - replace with actual selectors from target website
-    // Format: fieldName: 'css-selector'
-    // These should be customized per project
-  },
+  // Form Field Selectors (now managed in sheetMapping.js)
+  formSelectors: sheetMapping.FORM_SELECTORS,
+
+  // Sheet Column Mappings (now managed in sheetMapping.js)
+  columnMappings: sheetMapping.COLUMN_MAPPINGS,
 
   // Iframe Selectors for data extraction
   iframeSelectors: {
-    // Example selectors - replace with actual selectors
-    // iframe: 'iframe[id="result-frame"]',
-    // dataElement: '.result-data'
+    // Configure iframe extraction based on your target website
+    // Example:
+    // iframeSelector: '#result-iframe',
+    // iframeIndex: 1,
+    // iframeUrl: /result\.php/,
+    fields: {
+      // Map iframe data to sheet columns
+      // Example: 'ResultData': '#result-text'
+    }
   }
 };
 

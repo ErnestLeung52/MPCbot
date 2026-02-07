@@ -34,15 +34,11 @@ npm install
    - Share your Google Sheet with the service account email (found in credentials.json)
 
 3. Configure environment variables:
-```bash
-cp .env.example .env
-```
 
 Edit `.env` with your configuration:
 ```env
 # Google Sheets
 GOOGLE_SHEETS_ID=your_spreadsheet_id_here
-GOOGLE_SHEET_NAME=Sheet1
 GOOGLE_APPLICATION_CREDENTIALS=./credentials.json
 
 # Target Website
@@ -86,20 +82,39 @@ Edit `config/proxies.json` with your proxies:
 
 ## Configuration
 
-### 1. Configure Form Field Mapping
+### 1. Configure Sheet and Form Mapping
 
-Edit `config/config.js` and set up `formSelectors`:
+**All configuration is now centralized in `config/sheetMapping.js`**
+
+Edit `config/sheetMapping.js`:
 
 ```javascript
-formSelectors: {
-  // Map Google Sheets column names to CSS selectors
-  'FirstName': '#first-name-input',
-  'LastName': '#last-name-input',
-  'Email': '#email-input',
-  'Phone': 'input[name="phone"]',
-  'Message': 'textarea#message'
-}
+// Set your sheet name
+const SHEET_NAME = 'Your Sheet Name';
+
+// Map your sheet columns to form fields
+const COLUMN_MAPPINGS = {
+  firstName: 'FirstName',      // Your sheet column name
+  lastName: 'LastName',        // Your sheet column name
+  email: 'Email',              // Your sheet column name
+  // ... etc
+};
+
+// Map form fields to CSS selectors
+const FORM_SELECTORS = {
+  firstName: '#first-name-input',     // CSS selector
+  lastName: '#last-name-input',       // CSS selector
+  email: '#email-input',              // CSS selector
+  submitButton: '#submit-button'      // CSS selector
+};
 ```
+
+**Features:**
+- Automatic state abbreviation conversion (CA → California)
+- Optional field handling
+- Centralized configuration for easy updates
+
+**See `SHEET_MAPPING_GUIDE.md` for detailed instructions**
 
 ### 2. Configure Iframe Extraction
 
@@ -132,13 +147,19 @@ iframeSelectors: {
 }
 ```
 
-### 3. Set Submit Button Selector
+### 3. Test Your Configuration
 
-Edit `src/index.js` and update the submit button selector:
+Run these test scripts to verify everything is set up correctly:
 
-```javascript
-const submitSelector = '#submit-button'; // Change to your submit button selector
+```bash
+# Test Google Sheets connection
+node test-sheets.js
+
+# Test column mappings and data extraction
+node test-mapping.js
 ```
+
+Fix any errors before running the full automation.
 
 ## Google Sheets Format
 
@@ -162,7 +183,11 @@ The app will:
 
 ## Usage
 
-Run the application:
+### Quick Start
+
+For a quick setup, see `QUICK_START.md`
+
+### Run the Application
 
 ```bash
 npm start
@@ -172,6 +197,16 @@ Or directly with node:
 
 ```bash
 node src/index.js
+```
+
+### Test Scripts
+
+```bash
+# Test Google Sheets connection
+node test-sheets.js
+
+# Test configuration and mappings
+node test-mapping.js
 ```
 
 ## Workflow
@@ -273,6 +308,8 @@ If the website detects automation:
 ```
 MPCbot/
 ├── config/
+│   ├── sheetMapping.js        # Sheet & form configuration (EDIT THIS)
+│   ├── sheetMapping.example.js # Template for sheetMapping.js
 │   ├── config.js              # Main configuration
 │   ├── proxies.json           # Proxy list (create from example)
 │   └── proxies.example.json   # Proxy list template
@@ -291,9 +328,13 @@ MPCbot/
 │       └── errorHandler.js    # Error handling utilities
 ├── logs/                      # Runtime logs (auto-created)
 ├── screenshots/               # Error screenshots (auto-created)
-├── .env                       # Environment variables (create from example)
-├── .env.example               # Environment template
+├── test-sheets.js             # Test Google Sheets connection
+├── test-mapping.js            # Test configuration and mappings
+├── .env                       # Environment variables
 ├── credentials.json           # Google service account key (create)
+├── QUICK_START.md             # Quick setup guide
+├── SHEET_MAPPING_GUIDE.md     # Detailed mapping configuration guide
+├── CHANGES.md                 # Recent configuration changes
 ├── package.json
 └── README.md
 ```

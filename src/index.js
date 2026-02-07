@@ -1,4 +1,5 @@
 const config = require('../config/config');
+const sheetMapping = require('../config/sheetMapping');
 const logger = require('./utils/logger');
 const errorHandler = require('./utils/errorHandler');
 const googleSheets = require('./services/googleSheets');
@@ -77,26 +78,21 @@ class MPCBot {
       // Fill form with data
       logger.info('Filling form...');
       
-      // IMPORTANT: Customize this section based on your target website
-      // This is a basic example - you need to configure:
-      // 1. Field mapping (which columns map to which form fields)
-      // 2. Submit button selector
-      // 3. Any custom form logic
+      // Extract row data using sheet mappings
+      const extractedData = sheetMapping.extractRowData(rowData, headers);
       
-      const fieldMapping = config.formSelectors || {};
-      const submitSelector = '#submit-button'; // CUSTOMIZE THIS
+      // Build form data with transformations (e.g., state conversion)
+      const formData = sheetMapping.buildFormData(extractedData);
       
-      // Check if field mapping is configured
-      if (Object.keys(fieldMapping).length === 0) {
-        logger.warn('No form field mapping configured in config.js');
-        logger.warn('Please configure config.formSelectors with your field mappings');
-        logger.warn('Example: { "FirstName": "#first-name-input", "Email": "#email-input" }');
-      }
+      // Get form selectors from mapping
+      const formSelectors = sheetMapping.FORM_SELECTORS;
+      const submitSelector = formSelectors.submitButton;
+      
+      logger.debug('Form data prepared:', JSON.stringify(formData, null, 2));
 
       await formFiller.fillAndSubmit(page, {
-        rowData,
-        headers,
-        fieldMapping,
+        formData,
+        formSelectors,
         submitSelector,
         url: config.targetUrl
       });
@@ -121,17 +117,16 @@ class MPCBot {
         logger.warn('Example: { iframeSelector: "#result-iframe", fields: { "Result": "#result-text" } }');
       }
 
-      const extractedData = await iframeExtractor.extract(page, extractionConfig);
+      const iframeData = await iframeExtractor.extract(page, extractionConfig);
 
       // Update Google Sheet with results
       logger.info('Updating Google Sheet...');
       
-      // Prepare update data
-      const updateData = {
-        Status: 'Success',
-        Timestamp: new Date().toISOString(),
-        ...extractedData
-      };
+      // Prepare update data using sheet mappings
+      const updateData = sheetMapping.buildUpdateData({
+        status: 'Success',
+        extractedData: iframeData
+      });
 
       await googleSheets.updateRow(rowIndex, updateData);
 
@@ -147,7 +142,7 @@ class MPCBot {
       return {
         success: true,
         duration,
-        extractedData
+        extractedData: iframeData
       };
     } catch (error) {
       // Handle error
@@ -155,11 +150,11 @@ class MPCBot {
 
       // Try to update sheet with error status
       try {
-        await googleSheets.updateRow(rowIndex, {
-          Status: 'Failed',
-          Error: error.message,
-          Timestamp: new Date().toISOString()
+        const errorUpdateData = sheetMapping.buildUpdateData({
+          status: 'Failed',
+          error: error.message
         });
+        await googleSheets.updateRow(rowIndex, errorUpdateData);
       } catch (updateError) {
         logger.error(`Failed to update error status in sheet: ${updateError.message}`);
       }

@@ -115,27 +115,31 @@ class FormFiller {
   /**
    * Fill form with data from a row
    * @param {Page} page - Playwright page instance
-   * @param {Array<string>} rowData - Array of values from sheet row
-   * @param {Array<string>} headers - Array of column headers
-   * @param {Object} fieldMapping - Mapping of column names to selectors
+   * @param {Object} formData - Object with field keys and values
+   * @param {Object} formSelectors - Object with field keys and CSS selectors
    * @returns {Promise<void>}
    */
-  async fillForm(page, rowData, headers, fieldMapping) {
+  async fillForm(page, formData, formSelectors) {
     try {
       logger.info('Starting form fill');
 
-      // Create data object from row and headers
-      const dataObject = {};
-      headers.forEach((header, index) => {
-        dataObject[header] = rowData[index] || '';
-      });
-
       // Fill each field based on mapping
-      for (const [columnName, selector] of Object.entries(fieldMapping)) {
-        const value = dataObject[columnName];
+      for (const [fieldKey, selector] of Object.entries(formSelectors)) {
+        // Skip submit button
+        if (fieldKey === 'submitButton') {
+          continue;
+        }
+
+        const value = formData[fieldKey];
+        
+        // Skip empty optional fields
+        if (!value && fieldKey === 'apartment') {
+          logger.debug(`Skipping optional field "${fieldKey}" (empty)`);
+          continue;
+        }
         
         if (!value) {
-          logger.warn(`No value for column "${columnName}", skipping`);
+          logger.warn(`No value for field "${fieldKey}", skipping`);
           continue;
         }
 
@@ -221,9 +225,8 @@ class FormFiller {
    * Complete form filling workflow
    * @param {Page} page - Playwright page instance
    * @param {Object} options - Options object
-   * @param {Array<string>} options.rowData - Row data from sheet
-   * @param {Array<string>} options.headers - Column headers
-   * @param {Object} options.fieldMapping - Field selector mapping
+   * @param {Object} options.formData - Form data object with field keys and values
+   * @param {Object} options.formSelectors - Form selectors object with field keys and CSS selectors
    * @param {string} options.submitSelector - Submit button selector
    * @param {string} options.url - URL to navigate to (optional)
    * @returns {Promise<void>}
@@ -231,9 +234,8 @@ class FormFiller {
   async fillAndSubmit(page, options) {
     try {
       const {
-        rowData,
-        headers,
-        fieldMapping,
+        formData,
+        formSelectors,
         submitSelector,
         url = null
       } = options;
@@ -242,7 +244,7 @@ class FormFiller {
       await this.navigateToPage(page, url);
 
       // Fill form
-      await this.fillForm(page, rowData, headers, fieldMapping);
+      await this.fillForm(page, formData, formSelectors);
 
       // Submit form
       await this.submitForm(page, submitSelector);
