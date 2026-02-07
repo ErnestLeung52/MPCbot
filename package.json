@@ -8,7 +8,9 @@
     "test": "node test-setup.js",
     "validate": "node test-setup.js",
     "test-sheets": "node -e \"require('./src/services/googleSheets').initialize().then(() => console.log('✓ Google Sheets connected successfully!')).catch(e => console.error('❌ Connection failed:', e.message))\"",
-    "test-detection": "node test-detection.js"
+    "test-detection": "node test-detection.js",
+    "test-detection:list": "node test-detection.js --list",
+    "test-detection:help": "node test-detection.js --help"
   },
   "keywords": ["automation", "patchright", "browser", "stealth"],
   "author": "",

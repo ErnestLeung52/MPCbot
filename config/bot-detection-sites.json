@@ -19,6 +19,11 @@
       "name": "Fingerprint Scan",
       "url": "https://fingerprint-scan.com",
       "description": "Advanced browser fingerprinting and tracking detection"
+    },
+    {
+      "name": "Rebrowser Bot Detector",
+      "url": "https://bot-detector.rebrowser.net/",
+      "description": "Modern tests to detect automated browser behavior - Chromium-specific detection"
     }
   ]
 }

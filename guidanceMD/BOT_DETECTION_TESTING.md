@@ -30,14 +30,50 @@ The test suite checks your browser against the following websites (configured in
    - Tracking and automation detection
    - Canvas and WebGL fingerprinting
 
+5. **Rebrowser Bot Detector** (`https://bot-detector.rebrowser.net/`)
+   - Modern Chromium-specific bot detection
+   - Tests for Puppeteer/Playwright automation
+   - Checks for function exposure leaks and context isolation
+
 ## Running Tests
 
 ### Quick Start
 
-Run all bot detection tests:
-
+**Run all tests:**
 ```bash
 npm run test-detection
+```
+
+**Run a specific test by index:**
+```bash
+npm run test-detection 1        # Run Bot Sannysoft only
+npm run test-detection 2        # Run Are You Headless only
+npm run test-detection 3        # Run PixelScan only
+npm run test-detection 4        # Run Fingerprint Scan only
+npm run test-detection 5        # Run Rebrowser Bot Detector only
+```
+
+**Run multiple specific tests:**
+```bash
+npm run test-detection 1,2      # Run tests 1 and 2
+npm run test-detection 1,3,5    # Run tests 1, 3, and 5
+```
+
+**View available tests:**
+```bash
+npm run test-detection:list     # Show all available test sites
+npm run test-detection:help     # Show help menu
+npm run test-detection -- --list  # Alternative way to list tests
+```
+
+### Test Site Indices
+
+```
+[1] Bot Sannysoft
+[2] Are You Headless
+[3] PixelScan
+[4] Fingerprint Scan
+[5] Rebrowser Bot Detector
 ```
 
 ### What Happens During Tests
@@ -51,9 +87,15 @@ npm run test-detection
 
 ### Test Duration
 
-- Each site takes approximately 35-40 seconds to test
-- Total test time: ~2-3 minutes for all 4 sites
-- Additional 5-second delay between tests
+- **Single test**: ~35-40 seconds per site
+- **All tests**: ~3-4 minutes for all 5 sites
+- **Multiple tests**: Variable (with 5-second delay between each)
+
+**Time Estimates:**
+- 1 test: ~40 seconds
+- 2 tests: ~1.5 minutes
+- 3 tests: ~2.5 minutes
+- All 5 tests: ~3-4 minutes
 
 ## Understanding Results
 
@@ -88,6 +130,14 @@ Check the screenshot for:
 - **Tracking Protection**: Check detection status
 - **Browser Signals**: Should match a real Chrome browser
 - **Anomaly Detection**: No unusual patterns should be detected
+
+### Rebrowser Bot Detector Results
+
+Look for:
+- **Detection Count**: Should be 0 or very low
+- **Red/Failed Tests**: Each failed test indicates automation detection
+- **Common Issues**: Function exposure leaks, isolated context detection
+- **Overall Status**: Green tests = passing, Red tests = detected as bot
 
 ## Screenshots
 
@@ -187,12 +237,22 @@ Active stealth measures:
 
 ### Running Specific Sites
 
-Edit `test-detection.js` to filter sites:
+**Quick testing of critical sites:**
+```bash
+# Test only headless detection
+npm run test-detection 2
 
-```javascript
-const TEST_SITES = sitesConfig.sites.filter(site => 
-  site.name === 'Bot Sannysoft'
-);
+# Test fingerprinting sites
+npm run test-detection 3,4
+
+# Test modern detection tools
+npm run test-detection 1,5
+```
+
+**CI/CD Integration:**
+```bash
+# Run specific tests in CI pipeline
+npm run test-detection 1,2,5
 ```
 
 ### Automated Testing
