@@ -19,6 +19,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+.cursor/
 
 # Build outputs
 dist/
@@ -26,3 +27,9 @@ build/
 
 # Screenshots (error debugging)
 screenshots/
+
+# Guide
+PROJECT_SUMMARY.md
+QUICK_START.md
+SETUP_GUIDE.md
+FILES.md
