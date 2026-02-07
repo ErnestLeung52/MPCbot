@@ -1,0 +1,24 @@
+{
+  "sites": [
+    {
+      "name": "Bot Sannysoft",
+      "url": "https://bot.sannysoft.com",
+      "description": "Comprehensive bot detection tests - checks for common automation indicators"
+    },
+    {
+      "name": "Are You Headless",
+      "url": "https://arh.antoinevastel.com/bots/areyouheadless",
+      "description": "Tests for headless browser detection"
+    },
+    {
+      "name": "PixelScan",
+      "url": "https://pixelscan.net",
+      "description": "Browser fingerprinting and bot detection analysis"
+    },
+    {
+      "name": "Fingerprint Scan",
+      "url": "https://fingerprint-scan.com",
+      "description": "Advanced browser fingerprinting and tracking detection"
+    }
+  ]
+}

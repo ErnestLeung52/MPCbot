@@ -4,27 +4,16 @@
  */
 
 require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
 const browserService = require('./src/services/browser');
 const proxyManager = require('./src/services/proxyManager');
 const logger = require('./src/utils/logger');
 
-const TEST_SITES = [
-  {
-    name: 'Bot Sannysoft',
-    url: 'https://bot.sannysoft.com/',
-    description: 'Comprehensive bot detection tests'
-  },
-  {
-    name: 'PixelScan',
-    url: 'https://pixelscan.net/',
-    description: 'Browser fingerprinting analysis'
-  },
-  {
-    name: 'CreepJS',
-    url: 'https://abrahamjuliot.github.io/creepjs/',
-    description: 'Advanced fingerprint detection'
-  }
-];
+// Load test sites from configuration file
+const configPath = path.join(__dirname, 'config', 'bot-detection-sites.json');
+const sitesConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+const TEST_SITES = sitesConfig.sites;
 
 async function testSite(site, useProxy = false) {
   let browser = null;
@@ -84,6 +73,23 @@ async function testSite(site, useProxy = false) {
       } else {
         console.log('✓ All tests passed!');
       }
+    } else if (site.name === 'Are You Headless') {
+      const results = await page.evaluate(() => {
+        const body = document.body.textContent || '';
+        const isHeadless = body.toLowerCase().includes('you are headless');
+        return { isHeadless };
+      }).catch(() => ({ isHeadless: 'Unknown' }));
+      
+      if (results.isHeadless === true) {
+        console.log('❌ Detected as HEADLESS browser');
+      } else if (results.isHeadless === false) {
+        console.log('✓ Not detected as headless');
+      } else {
+        console.log('⚠️  Could not determine headless status - check screenshot');
+      }
+    } else if (site.name === 'PixelScan' || site.name === 'Fingerprint Scan') {
+      console.log('ℹ️  Check screenshot for detailed analysis');
+      console.log('   Look for: Bot Score, Fingerprint Consistency, Automation Indicators');
     }
 
     // Keep browser open for manual inspection
@@ -110,6 +116,13 @@ async function runTests() {
   console.log('This will test the browser on known bot detection sites.');
   console.log('Check the browser window and screenshots for any red flags.');
   console.log('');
+  
+  // Create screenshots directory if it doesn't exist
+  const screenshotsDir = path.join(__dirname, 'screenshots');
+  if (!fs.existsSync(screenshotsDir)) {
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+    console.log('✓ Created screenshots directory');
+  }
   
   // Load proxies
   proxyManager.loadProxies();
@@ -138,14 +151,24 @@ async function runTests() {
   console.log('='.repeat(60));
   console.log('All tests completed!');
   console.log('');
-  console.log('What to look for:');
-  console.log('✓ navigator.webdriver should be undefined or false');
-  console.log('✓ Chrome should appear as a normal browser');
-  console.log('✓ Plugins should be present');
-  console.log('✓ WebGL and Canvas should work normally');
-  console.log('✓ No red "FAILED" indicators');
+  console.log('What to look for in results:');
   console.log('');
-  console.log('Check screenshots in ./screenshots/ directory');
+  console.log('Bot Sannysoft:');
+  console.log('  ✓ navigator.webdriver should be undefined or false');
+  console.log('  ✓ No red "FAILED" indicators');
+  console.log('  ✓ Chrome should appear as a normal browser');
+  console.log('');
+  console.log('Are You Headless:');
+  console.log('  ✓ Should NOT detect as headless browser');
+  console.log('  ✓ All checks should pass');
+  console.log('');
+  console.log('PixelScan & Fingerprint Scan:');
+  console.log('  ✓ Low or zero bot score');
+  console.log('  ✓ Consistent browser fingerprint');
+  console.log('  ✓ No automation indicators');
+  console.log('  ✓ WebGL and Canvas should work normally');
+  console.log('');
+  console.log('Check screenshots in ./screenshots/ directory for detailed results');
   console.log('='.repeat(60));
 }
 
