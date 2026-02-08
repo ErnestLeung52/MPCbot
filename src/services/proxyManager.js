@@ -20,7 +20,7 @@ class ProxyManager {
       if (!fs.existsSync(this.proxiesPath)) {
         logger.warn(
           `Proxies configuration file not found at ${this.proxiesPath}\n` +
-          'Please create config/proxies.json with your proxy list. Using no proxy for now.'
+          'Please create config/proxies.json with your proxy list (format: IP:PORT:USERNAME:PASSWORD). Using no proxy for now.'
         );
         this.proxies = [];
         this.loaded = true;
@@ -29,17 +29,34 @@ class ProxyManager {
 
       // Read and parse proxies file
       const fileContent = fs.readFileSync(this.proxiesPath, 'utf8');
-      const proxiesData = JSON.parse(fileContent);
+      
+      // Parse text format (IP:PORT:USERNAME:PASSWORD per line)
+      const lines = fileContent.split('\n')
+        .map(line => line.trim())
+        .filter(line => line && !line.startsWith('#')); // Filter empty lines and comments
 
-      if (!Array.isArray(proxiesData)) {
-        throw new Error('Proxies file must contain an array of proxy objects');
-      }
+      const proxiesData = lines.map(line => {
+        const parts = line.split(':');
+        if (parts.length >= 2) {
+          const ip = parts[0];
+          const port = parts[1];
+          const username = parts[2] || '';
+          const password = parts[3] || '';
+
+          return {
+            server: `http://${ip}:${port}`,
+            username,
+            password
+          };
+        }
+        return null;
+      }).filter(proxy => proxy !== null);
 
       // Validate each proxy
       this.proxies = proxiesData.filter((proxy, index) => {
         const isValid = this.validateProxy(proxy);
         if (!isValid) {
-          logger.warn(`Invalid proxy at index ${index}, skipping`);
+          logger.warn(`Invalid proxy at line ${index + 1}, skipping`);
         }
         return isValid;
       });
@@ -82,6 +99,18 @@ class ProxyManager {
 
     if (!hasValidProtocol) {
       logger.warn(`Proxy server must start with http://, https://, or socks5://: ${proxy.server}`);
+      return false;
+    }
+
+    // Validate basic IP:PORT format in the server URL
+    try {
+      const url = new URL(proxy.server);
+      if (!url.hostname || !url.port) {
+        logger.warn(`Invalid proxy format: ${proxy.server}`);
+        return false;
+      }
+    } catch (error) {
+      logger.warn(`Invalid proxy URL: ${proxy.server}`);
       return false;
     }
 
