@@ -21,10 +21,10 @@ const SHEET_NAME = 'FB22 Int Track'; // Change this when using a different sheet
 
 const COLUMN_MAPPINGS = {
   // Input columns (data to read from sheet)
-  redeemCode: 'RedeemCode',          // Your sheet column name for redeem code
-  firstName: 'FirstName',            // Your sheet column name for first name
-  lastName: 'LastName',              // Your sheet column name for last name
-  streetAddress: 'StreetAddress',    // Your sheet column name for street address
+  redeemCode: 'RedeemCode2',          // Your sheet column name for redeem code
+  firstName: 'First',            // Your sheet column name for first name
+  lastName: 'Last',              // Your sheet column name for last name
+  streetAddress: 'Address',    // Your sheet column name for street address
   apartment: 'Apartment',            // Your sheet column name for apartment (optional)
   city: 'City',                      // Your sheet column name for city
   state: 'State',                    // Your sheet column name for state (accepts abbreviations)
@@ -33,8 +33,11 @@ const COLUMN_MAPPINGS = {
   email: 'Email',                    // Your sheet column name for email
   
   // Output columns (data to write back to sheet)
-  status: 'Status',                  // Column to store processing status
-  result: 'ResultData',              // Column to store extracted result
+  status: 'Status',                  // Column to store processing status (In Progress, Success, Failed)
+  amount: 'Amount',                  // Column to store card amount
+  cardNumber: 'CardNumber',          // Column to store card number
+  exp: 'Exp',                        // Column to store card expiration date
+  cvv: 'CVV',                        // Column to store card CVV
   timestamp: 'Timestamp',            // Column to store processing timestamp
   error: 'Error'                     // Column to store error messages
 };
@@ -186,30 +189,65 @@ function extractRowData(rowData, headers) {
 }
 
 /**
+ * Sanitize row data before form submission
+ * @param {Object} rowData - Extracted row data
+ * @returns {Object} - Sanitized data
+ */
+function sanitizeRowData(rowData) {
+  // TODO: Implement specific sanitization logic here
+  // Examples:
+  // - Trim whitespace
+  // - Remove special characters
+  // - Format phone numbers
+  // - Validate email format
+  // - Clean zip codes
+  
+  const sanitized = { ...rowData };
+  
+  // Basic sanitization (trim all string values)
+  for (const [key, value] of Object.entries(sanitized)) {
+    if (typeof value === 'string') {
+      sanitized[key] = value.trim();
+    }
+  }
+  
+  // Add more specific sanitization rules as needed
+  // Example: Remove non-numeric characters from phone
+  // if (sanitized.phone) {
+  //   sanitized.phone = sanitized.phone.replace(/\D/g, '');
+  // }
+  
+  return sanitized;
+}
+
+/**
  * Build form data with transformations
  * @param {Object} rowData - Extracted row data
  * @returns {Object} - Form data ready for submission
  */
 function buildFormData(rowData) {
+  // Apply sanitization first
+  const sanitized = sanitizeRowData(rowData);
+  
   return {
-    redeemCode: rowData.redeemCode,
-    firstName: rowData.firstName,
-    lastName: rowData.lastName,
-    streetAddress: rowData.streetAddress,
-    apartment: rowData.apartment || '', // Optional field
-    city: rowData.city,
-    state: convertStateToFullName(rowData.state), // Convert state abbreviation
-    zipCode: rowData.zipCode,
-    phone: rowData.phone,
-    email: rowData.email
+    redeemCode: sanitized.redeemCode,
+    firstName: sanitized.firstName,
+    lastName: sanitized.lastName,
+    streetAddress: sanitized.streetAddress,
+    apartment: sanitized.apartment || '', // Optional field
+    city: sanitized.city,
+    state: convertStateToFullName(sanitized.state), // Convert state abbreviation
+    zipCode: sanitized.zipCode,
+    phone: sanitized.phone,
+    email: sanitized.email
   };
 }
 
 /**
  * Build update data object for Google Sheets
  * @param {Object} params - Parameters
- * @param {string} params.status - Status (e.g., 'Success', 'Failed')
- * @param {Object} params.extractedData - Extracted data from iframe
+ * @param {string} params.status - Status (e.g., 'In Progress', 'Success', 'Failed')
+ * @param {Object} params.extractedData - Extracted data from webpage (Amount, CardNumber, Exp, CVV)
  * @param {string} params.error - Error message (optional)
  * @returns {Object} - Update data object with sheet column names as keys
  */
@@ -219,9 +257,18 @@ function buildUpdateData({ status, extractedData = {}, error = null }) {
     [COLUMN_MAPPINGS.timestamp]: new Date().toISOString()
   };
   
-  // Add extracted data
-  for (const [key, value] of Object.entries(extractedData)) {
-    updateData[key] = value;
+  // Add extracted card data (only these 4 fields)
+  if (extractedData.amount !== undefined) {
+    updateData[COLUMN_MAPPINGS.amount] = extractedData.amount;
+  }
+  if (extractedData.cardNumber !== undefined) {
+    updateData[COLUMN_MAPPINGS.cardNumber] = extractedData.cardNumber;
+  }
+  if (extractedData.exp !== undefined) {
+    updateData[COLUMN_MAPPINGS.exp] = extractedData.exp;
+  }
+  if (extractedData.cvv !== undefined) {
+    updateData[COLUMN_MAPPINGS.cvv] = extractedData.cvv;
   }
   
   // Add error if present
@@ -247,6 +294,7 @@ module.exports = {
   getColumnName,
   getFormSelector,
   extractRowData,
+  sanitizeRowData,
   buildFormData,
   buildUpdateData
 };

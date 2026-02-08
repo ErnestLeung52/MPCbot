@@ -30,8 +30,11 @@ const COLUMN_MAPPINGS = {
   email: 'Email',                    // TODO: Your sheet column name for email
   
   // Output columns (data to write back to sheet)
-  status: 'Status',                  // TODO: Column to store processing status
-  result: 'ResultData',              // TODO: Column to store extracted result
+  status: 'Status',                  // TODO: Column to store processing status (In Progress, Success, Failed)
+  amount: 'Amount',                  // TODO: Column to store card amount
+  cardNumber: 'CardNumber',          // TODO: Column to store card number
+  exp: 'Exp',                        // TODO: Column to store card expiration date
+  cvv: 'CVV',                        // TODO: Column to store card CVV
   timestamp: 'Timestamp',            // TODO: Column to store processing timestamp
   error: 'Error'                     // TODO: Column to store error messages
 };

@@ -62,6 +62,16 @@ class MPCBot {
       logger.logTaskStart(taskNumber, totalRows);
       logger.info('-'.repeat(60));
 
+      // Update status to "In Progress" at the start
+      logger.info('Marking task as In Progress...');
+      try {
+        await googleSheets.updateRow(rowIndex, sheetMapping.buildUpdateData({
+          status: 'In Progress'
+        }));
+      } catch (statusError) {
+        logger.warn(`Could not update status to In Progress: ${statusError.message}`);
+      }
+
       // Get next proxy
       const proxy = proxyManager.getNext();
       if (proxy) {
@@ -81,8 +91,12 @@ class MPCBot {
       // Extract row data using sheet mappings
       const extractedData = sheetMapping.extractRowData(rowData, headers);
       
+      // Sanitize data before form submission
+      logger.debug('Sanitizing row data...');
+      const sanitizedData = sheetMapping.sanitizeRowData(extractedData);
+      
       // Build form data with transformations (e.g., state conversion)
-      const formData = sheetMapping.buildFormData(extractedData);
+      const formData = sheetMapping.buildFormData(sanitizedData);
       
       // Get form selectors from mapping
       const formSelectors = sheetMapping.FORM_SELECTORS;
@@ -97,38 +111,46 @@ class MPCBot {
         url: config.targetUrl
       });
 
-      // Extract data from iframe
-      logger.info('Extracting data from iframe...');
+      // Extract card data from webpage
+      logger.info('Extracting card data from webpage...');
       
-      // IMPORTANT: Customize this section based on your target website
-      // Configure the iframe extraction settings
+      // Configure extraction for the 4 required fields: Amount, CardNumber, Exp, CVV
       const extractionConfig = config.iframeSelectors || {
         iframeIndex: 1, // Default to first iframe (after main frame)
         fields: {
-          // Example: 'ResultData': '#result-element'
-          // Customize based on your needs
+          // TODO: Update these selectors based on your actual webpage structure
+          amount: '#card-amount',        // Selector for card amount
+          cardNumber: '#card-number',    // Selector for card number
+          exp: '#card-exp',              // Selector for expiration date
+          cvv: '#card-cvv'               // Selector for CVV
         }
       };
 
       // Check if iframe selectors are configured
       if (!extractionConfig.fields || Object.keys(extractionConfig.fields).length === 0) {
-        logger.warn('No iframe extraction fields configured in config.js');
-        logger.warn('Please configure config.iframeSelectors with your extraction fields');
-        logger.warn('Example: { iframeSelector: "#result-iframe", fields: { "Result": "#result-text" } }');
+        logger.warn('No iframe/page extraction fields configured in config.js');
+        logger.warn('Please configure config.iframeSelectors with card data extraction fields');
+        logger.warn('Required fields: amount, cardNumber, exp, cvv');
       }
 
-      const iframeData = await iframeExtractor.extract(page, extractionConfig);
+      const cardData = await iframeExtractor.extract(page, extractionConfig);
 
       // Update Google Sheet with results
       logger.info('Updating Google Sheet...');
       
-      // Prepare update data using sheet mappings
+      // Prepare update data with card information
       const updateData = sheetMapping.buildUpdateData({
         status: 'Success',
-        extractedData: iframeData
+        extractedData: cardData  // Contains: amount, cardNumber, exp, cvv
       });
 
       await googleSheets.updateRow(rowIndex, updateData);
+      
+      logger.info('Card data extracted and saved:');
+      if (cardData.amount) logger.info(`  Amount: ${cardData.amount}`);
+      if (cardData.cardNumber) logger.info(`  Card Number: ${cardData.cardNumber}`);
+      if (cardData.exp) logger.info(`  Expiration: ${cardData.exp}`);
+      if (cardData.cvv) logger.info(`  CVV: ${cardData.cvv}`);
 
       // Calculate duration
       const duration = Date.now() - startTime;
@@ -142,7 +164,7 @@ class MPCBot {
       return {
         success: true,
         duration,
-        extractedData: iframeData
+        cardData
       };
     } catch (error) {
       // Handle error

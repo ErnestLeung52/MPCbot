@@ -110,11 +110,29 @@ async function test() {
       
       const updateData = sheetMapping.buildUpdateData({
         status: 'Success',
-        extractedData: { 'CardNumber': '1234567890' },
+        extractedData: { 
+          amount: '$50.00',
+          cardNumber: '1234567890123456',
+          exp: '12/25',
+          cvv: '123'
+        },
         error: null
       });
       
       for (const [key, value] of Object.entries(updateData)) {
+        console.log(`   Column "${key}" = ${value}`);
+      }
+      console.log('');
+      
+      // Test "In Progress" status
+      console.log('9. Testing "In Progress" Status Update:');
+      console.log('   ' + '-'.repeat(50));
+      
+      const inProgressData = sheetMapping.buildUpdateData({
+        status: 'In Progress'
+      });
+      
+      for (const [key, value] of Object.entries(inProgressData)) {
         console.log(`   Column "${key}" = ${value}`);
       }
       console.log('');

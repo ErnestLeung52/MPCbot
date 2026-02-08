@@ -62,16 +62,22 @@ const config = {
   // Sheet Column Mappings (now managed in sheetMapping.js)
   columnMappings: sheetMapping.COLUMN_MAPPINGS,
 
-  // Iframe Selectors for data extraction
+  // Iframe/Page Selectors for card data extraction
   iframeSelectors: {
-    // Configure iframe extraction based on your target website
-    // Example:
+    // Configure extraction based on your target website
+    // You can use iframe or direct page selectors
+    
+    // Uncomment ONE of these methods to identify the iframe (if card data is in iframe):
     // iframeSelector: '#result-iframe',
     // iframeIndex: 1,
     // iframeUrl: /result\.php/,
+    
+    // Card data extraction fields (update these selectors)
     fields: {
-      // Map iframe data to sheet columns
-      // Example: 'ResultData': '#result-text'
+      amount: '#card-amount',        // TODO: Update with actual selector
+      cardNumber: '#card-number',    // TODO: Update with actual selector
+      exp: '#card-exp',              // TODO: Update with actual selector
+      cvv: '#card-cvv'               // TODO: Update with actual selector
     }
   }
 };
