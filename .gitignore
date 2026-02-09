@@ -28,6 +28,9 @@ build/
 # Screenshots (error debugging)
 screenshots/
 
+# Browser profile (persistent Chrome data)
+.browser-profile/
+
 # Guide
 PROJECT_SUMMARY.md
 QUICK_START.md

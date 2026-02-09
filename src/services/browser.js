@@ -1,77 +1,56 @@
 const { chromium } = require('patchright');
+const path = require('path');
 const config = require('../../config/config');
 const logger = require('../utils/logger');
 
 class BrowserService {
   constructor() {
-    this.browser = null;
+    this.context = null;
   }
 
   /**
-   * Get random user agent from config
-   * @returns {string} - Random user agent string
-   * @private
-   */
-  getRandomUserAgent() {
-    const userAgents = config.browser.userAgents;
-    return userAgents[Math.floor(Math.random() * userAgents.length)];
-  }
-
-  /**
-   * Get random viewport size from config
-   * @returns {Object} - Viewport size { width, height }
-   * @private
-   */
-  getRandomViewport() {
-    const viewports = config.browser.viewportSizes;
-    return viewports[Math.floor(Math.random() * viewports.length)];
-  }
-
-  /**
-   * Get random timezone offset
-   * @returns {string} - Timezone ID
-   * @private
-   */
-  getRandomTimezone() {
-    const timezones = [
-      'America/New_York',
-      'America/Chicago',
-      'America/Los_Angeles',
-      'America/Denver',
-      'Europe/London',
-      'Europe/Paris',
-      'Europe/Berlin',
-      'Asia/Tokyo',
-      'Asia/Shanghai',
-      'Australia/Sydney'
-    ];
-    return timezones[Math.floor(Math.random() * timezones.length)];
-  }
-
-  /**
-   * Launch browser with stealth configuration
+   * Launch browser with PROPER patchright configuration
+   * Based on: https://roundproxies.com/blog/patchright/
+   * 
+   * KEY CHANGES:
+   * 1. Use launchPersistentContext (not launch) - creates real Chrome profile
+   * 2. Use channel: 'chrome' - real Chrome, not Chromium (critical!)
+   * 3. NO custom userAgent - let patchright handle it
+   * 4. NO custom viewport - use viewport: null for native resolution
+   * 5. NO custom headers - detection vector
+   * 6. NO args array - let patchright's patches handle everything
+   * 
    * @param {Object} proxy - Proxy configuration (optional)
-   * @returns {Promise<Browser>} - Patchright browser instance
+   * @returns {Promise<BrowserContext>} - Patchright persistent context
    */
   async launch(proxy = null) {
     try {
-      const userAgent = this.getRandomUserAgent();
-      const viewport = this.getRandomViewport();
-      const timezone = this.getRandomTimezone();
+      // Use a persistent user data directory (simulates real Chrome profile)
+      // This creates browsing history, cookies, local storage, etc.
+      const userDataDir = path.join(__dirname, '../../.browser-profile');
 
-      // Build launch options
+      // Build launch options following the guide's recommendations
+      // Reference: https://roundproxies.com/blog/patchright/#step-2-configure-for-maximum-stealth
       const launchOptions = {
+        // CRITICAL: Use real Chrome, not Chromium
+        // "Real users don't browse with Chromium, and anti-bot systems know this"
+        channel: 'chrome',
+        
+        // NEVER use headless for critical scraping
+        // Modern detection can spot headless browsers instantly
         headless: config.browser.headless,
-        args: [
-          '--disable-blink-features=AutomationControlled',
-          '--disable-dev-shm-usage',
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-web-security',
-          '--disable-features=IsolateOrigins,site-per-process',
-          '--disable-site-isolation-trials',
-          `--window-size=${viewport.width},${viewport.height}`
-        ]
+        
+        // Use native viewport (don't constrain it)
+        // This makes the browser use its natural resolution
+        viewport: null,
+        
+        // Let patchright handle user agent automatically
+        // DON'T add custom user_agent here - it's a detection vector
+        
+        // DON'T add args array - patchright handles all flags:
+        // - Adds: --disable-blink-features=AutomationControlled
+        // - Removes: --enable-automation, --disable-popup-blocking, etc.
+        // - Enables extensions and default apps (like real browser)
       };
 
       // Add proxy if provided
@@ -88,16 +67,21 @@ class BrowserService {
           launchOptions.proxy.password = proxy.password;
         }
 
-        logger.debug('Launching browser with proxy');
+        logger.debug('Launching Chrome with proxy');
       } else {
-        logger.debug('Launching browser without proxy');
+        logger.debug('Launching Chrome without proxy');
       }
 
-      // Launch browser
-      this.browser = await chromium.launch(launchOptions);
+      // Launch persistent context (NOT regular launch)
+      // This creates a real Chrome profile with history, making it undetectable
+      this.context = await chromium.launchPersistentContext(userDataDir, launchOptions);
 
-      logger.info('Browser launched successfully');
-      return this.browser;
+      logger.info('✓ Real Chrome launched with persistent profile (maximum stealth)');
+      logger.info('  Channel: chrome (not Chromium)');
+      logger.info('  Profile: Persistent user data directory');
+      logger.info('  Detection: Runtime.enable bypassed, CDP leaks patched');
+      
+      return this.context;
     } catch (error) {
       logger.error(`Failed to launch browser: ${error.message}`);
       throw error;
@@ -105,39 +89,33 @@ class BrowserService {
   }
 
   /**
-   * Create a new page with stealth settings
-   * @param {Browser} browser - Browser instance
+   * Create a new page from persistent context
+   * @param {BrowserContext} context - Persistent context (not used, kept for API compatibility)
    * @returns {Promise<Page>} - Patchright page instance
    */
-  async createPage(browser) {
+  async createPage(context = null) {
     try {
-      const userAgent = this.getRandomUserAgent();
-      const viewport = this.getRandomViewport();
-      const timezone = this.getRandomTimezone();
+      // With launchPersistentContext, the context is already created
+      // Just create a new page directly
+      const actualContext = context || this.context;
+      
+      if (!actualContext) {
+        throw new Error('Browser context not initialized. Call launch() first.');
+      }
 
-      // Create new context with stealth settings
-      const context = await browser.newContext({
-        userAgent,
-        viewport,
-        timezoneId: timezone,
-        locale: 'en-US',
-        colorScheme: 'light',
-        permissions: [],
-        geolocation: undefined,
-        extraHTTPHeaders: {
-          'Accept-Language': 'en-US,en;q=0.9',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-        }
-      });
+      // Create page - NO custom settings
+      // Don't add userAgent, viewport, extraHTTPHeaders, etc.
+      // Let patchright and Chrome handle everything naturally
+      const page = await actualContext.newPage();
 
-      // Create page
-      const page = await context.newPage();
+      // Patchright automatically provides:
+      // - Runtime.enable bypass (isolated ExecutionContexts)
+      // - Console.enable bypass (Console API disabled)
+      // - navigator.webdriver removed (--disable-blink-features=AutomationControlled)
+      // - All command flag leaks patched
+      // - Closed Shadow DOM access
 
-      // Additional stealth measures
-      await this.applyStealthScripts(page);
-
-      logger.debug(`New page created with viewport ${viewport.width}x${viewport.height}`);
+      logger.debug('New page created from persistent context');
       return page;
     } catch (error) {
       logger.error(`Failed to create page: ${error.message}`);
@@ -146,96 +124,40 @@ class BrowserService {
   }
 
   /**
-   * Apply additional stealth scripts to the page
-   * @param {Page} page - Patchright page instance
-   * @returns {Promise<void>}
-   * @private
+   * DEPRECATED: Custom stealth scripts removed
+   * 
+   * This method has been removed because custom stealth scripts conflict with
+   * patchright's built-in patches and can introduce detection vectors.
+   * 
+   * Patchright already handles:
+   * - Runtime.enable leak (via isolated ExecutionContexts)
+   * - Console.enable leak (Console API disabled)
+   * - navigator.webdriver (via --disable-blink-features=AutomationControlled)
+   * - Command flag leaks (tweaks Playwright default args)
+   * - General leaks and obvious detection points
+   * 
+   * Layering custom scripts over patchright's patches creates inconsistencies
+   * that modern detection systems can identify. Trust patchright's implementation.
+   * 
+   * If you need additional stealth, consider:
+   * - Using residential proxies (not datacenter IPs)
+   * - Updating to the latest patchright version
+   * - Checking patchright GitHub issues for known bypasses
+   * - Testing with minimal configuration first
    */
-  async applyStealthScripts(page) {
-    try {
-      // Override navigator properties to appear more human-like
-      await page.addInitScript(() => {
-        // Override the navigator.webdriver property
-        Object.defineProperty(navigator, 'webdriver', {
-          get: () => undefined
-        });
-
-        // Mock plugins
-        Object.defineProperty(navigator, 'plugins', {
-          get: () => [
-            {
-              0: { type: 'application/x-google-chrome-pdf', suffixes: 'pdf', description: 'Portable Document Format' },
-              description: 'Portable Document Format',
-              filename: 'internal-pdf-viewer',
-              length: 1,
-              name: 'Chrome PDF Plugin'
-            },
-            {
-              0: { type: 'application/pdf', suffixes: 'pdf', description: '' },
-              description: '',
-              filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai',
-              length: 1,
-              name: 'Chrome PDF Viewer'
-            }
-          ]
-        });
-
-        // Mock languages
-        Object.defineProperty(navigator, 'languages', {
-          get: () => ['en-US', 'en']
-        });
-
-        // Mock hardware concurrency
-        Object.defineProperty(navigator, 'hardwareConcurrency', {
-          get: () => 8
-        });
-
-        // Mock device memory
-        Object.defineProperty(navigator, 'deviceMemory', {
-          get: () => 8
-        });
-
-        // Override permissions
-        const originalQuery = window.navigator.permissions.query;
-        window.navigator.permissions.query = (parameters) => (
-          parameters.name === 'notifications' ?
-            Promise.resolve({ state: Notification.permission }) :
-            originalQuery(parameters)
-        );
-
-        // Add chrome runtime
-        window.chrome = {
-          runtime: {}
-        };
-
-        // Mock battery API
-        if ('getBattery' in navigator) {
-          navigator.getBattery = () => Promise.resolve({
-            charging: true,
-            chargingTime: 0,
-            dischargingTime: Infinity,
-            level: 1
-          });
-        }
-      });
-
-      logger.debug('Stealth scripts applied');
-    } catch (error) {
-      logger.error(`Failed to apply stealth scripts: ${error.message}`);
-      // Don't throw - continue even if stealth scripts fail
-    }
-  }
 
   /**
-   * Close browser instance
-   * @param {Browser} browser - Browser to close
+   * Close browser context
+   * @param {BrowserContext} context - Context to close (or use stored context)
    * @returns {Promise<void>}
    */
-  async close(browser) {
+  async close(context = null) {
     try {
-      if (browser) {
-        await browser.close();
-        logger.debug('Browser closed');
+      const actualContext = context || this.context;
+      if (actualContext) {
+        await actualContext.close();
+        logger.debug('Browser context closed');
+        this.context = null;
       }
     } catch (error) {
       logger.error(`Error closing browser: ${error.message}`);
@@ -243,11 +165,11 @@ class BrowserService {
   }
 
   /**
-   * Get browser instance
-   * @returns {Browser|null} - Current browser instance
+   * Get browser context
+   * @returns {BrowserContext|null} - Current browser context
    */
   getBrowser() {
-    return this.browser;
+    return this.context;
   }
 }
 

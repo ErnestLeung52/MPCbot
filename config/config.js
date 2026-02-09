@@ -14,22 +14,27 @@ const config = {
 
   // Browser Settings
   browser: {
+    // IMPORTANT: Set to false for production scraping
+    // Modern detection can spot headless browsers instantly
+    // Reference: https://roundproxies.com/blog/patchright/
     headless: process.env.HEADLESS === 'true',
+    
+    // DEPRECATED: User agents and viewports are now handled by patchright
+    // DO NOT customize these - let Chrome use its natural values
+    // Custom user agents and viewports are detection vectors
+    //
+    // The following are kept for backward compatibility but NOT used:
     viewport: {
       width: 1920,
       height: 1080
     },
     userAgents: [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      // These are no longer used - patchright handles user agent automatically
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
     ],
     viewportSizes: [
+      // These are no longer used - viewport is set to null for native resolution
       { width: 1920, height: 1080 },
-      { width: 1366, height: 768 },
-      { width: 1536, height: 864 },
-      { width: 1440, height: 900 }
     ]
   },
 
