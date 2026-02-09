@@ -21,7 +21,7 @@ const SHEET_NAME = 'FB22 Int $4.07'; // Change this when using a different sheet
 
 const COLUMN_MAPPINGS = {
 	// Input columns (data to read from sheet)
-	redeemCode: 'RedeemCode2', // Your sheet column name for redeem code
+	redeemCode: 'Redeem Code', // Your sheet column name for redeem code
 	firstName: 'First', // Your sheet column name for first name
 	lastName: 'Last', // Your sheet column name for last name
 	streetAddress: 'Address', // Your sheet column name for street address

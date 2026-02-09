@@ -170,16 +170,32 @@ Your Google Sheet should have:
 
 Example:
 
-| FirstName | LastName | Email | Phone | Status | ResultData | Timestamp |
-|-----------|----------|-------|-------|--------|------------|-----------|
-| John | Doe | john@example.com | 555-0100 | | | |
-| Jane | Smith | jane@example.com | 555-0101 | | | |
+| RedeemCode2 | FirstName | LastName | Email | Phone | Status | Amount | CardNumber | Exp | CVV | Timestamp |
+|-------------|-----------|----------|-------|-------|--------|--------|------------|-----|-----|-----------|
+| ABC123456789 | John | Doe | john@example.com | 555-0100 | | | | | | |
+| XYZ987654321 | Jane | Smith | jane@example.com | 555-0101 | Success | $50 | 1234... | 12/25 | 123 | 2026-02-08... |
 
 The app will:
-1. Read input data from the first columns
-2. Fill form and submit
-3. Extract results from iframe
-4. Update `Status`, `ResultData`, `Timestamp` columns
+1. **Scan rows** and filter valid tasks based on RedeemCode and Status
+2. **Process valid tasks**: Read input data and fill form
+3. **Extract card data**: Amount, CardNumber, Exp, CVV
+4. **Update sheet**: Status, card data, and Timestamp
+
+### Task Filtering Rules
+
+The bot automatically filters which rows to process:
+
+**✓ Will Process** if:
+- RedeemCode is exactly 12 characters
+- Status is empty (not processed yet)
+- Email, FirstName, LastName are present
+
+**✗ Will Skip** if:
+- RedeemCode is empty or not 12 characters
+- Status is not empty (already processed/failed/in progress)
+- Missing required fields
+
+See `TASK_FILTERING_GUIDE.md` for detailed filtering logic.
 
 ## Usage
 
@@ -207,22 +223,29 @@ node test-sheets.js
 
 # Test configuration and mappings
 node test-mapping.js
+
+# Test task filtering logic (see which tasks will be processed)
+node test-task-filtering.js
 ```
 
 ## Workflow
 
 1. **Initialize**: Connect to Google Sheets and load proxies
 2. **Fetch Data**: Read all rows from the sheet
-3. **For Each Row**:
+3. **Filter Tasks**: Identify valid tasks based on RedeemCode and Status
+4. **For Each Valid Task**:
+   - Mark Status as "In Progress"
    - Select next proxy from rotation
    - Launch Patchright browser with proxy
    - Navigate to target website
+   - Sanitize and prepare data
    - Fill form with data using human-like behavior
    - Submit form
-   - Wait for and extract data from iframe
+   - Extract card data (Amount, CardNumber, Exp, CVV)
    - Update Google Sheet with results
+   - Mark Status as "Success" or "Failed"
    - Close browser
-4. **Complete**: Log summary statistics
+5. **Complete**: Log summary statistics
 
 ## Human-like Behavior Features
 

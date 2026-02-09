@@ -116,6 +116,7 @@ iframeSelectors: {
 
 ### ☑️ Step 1: Verify Sheet Columns
 Make sure your Google Sheet has these columns:
+- [ ] RedeemCode2 (or your redeem code column)
 - [ ] Status
 - [ ] Amount
 - [ ] CardNumber
@@ -123,6 +124,7 @@ Make sure your Google Sheet has these columns:
 - [ ] CVV
 - [ ] Timestamp
 - [ ] Error
+- [ ] Email, FirstName, LastName (required)
 
 ### ☑️ Step 2: Update Column Mappings
 If your columns have different names, update `config/sheetMapping.js`
@@ -138,22 +140,38 @@ node test-mapping.js
 - ✓ Sanitization example
 - ✓ Update data includes Amount, CardNumber, Exp, CVV
 
-### ☑️ Step 4: Find & Update Card Selectors
+### ☑️ Step 4: Test Task Filtering
+```bash
+node test-task-filtering.js
+```
+
+**Should show:**
+- ✓ Which tasks will be processed
+- ✓ Why tasks are skipped
+- ✓ Filtering statistics
+
+### ☑️ Step 5: Find & Update Card Selectors
 1. Manually submit form on target website
 2. Find selectors for: Amount, CardNumber, Exp, CVV
 3. Update `config/config.js`
 
-### ☑️ Step 5: Test with One Row
+### ☑️ Step 6: Test with One Valid Task
+Ensure your sheet has at least 1 row with:
+- RedeemCode = 12 characters
+- Status = empty
+- Email, FirstName, LastName = filled
+
 ```bash
 npm start
 ```
 
 **Watch for:**
-1. Status changes to "In Progress" ✓
-2. Form fills correctly ✓
-3. Card data extracted ✓
-4. Status changes to "Success" ✓
-5. All 4 fields populated in sheet ✓
+1. Task filtering identifies valid task ✓
+2. Status changes to "In Progress" ✓
+3. Form fills correctly ✓
+4. Card data extracted ✓
+5. Status changes to "Success" ✓
+6. All 4 fields populated in sheet ✓
 
 ---
 
@@ -225,18 +243,20 @@ Empty → In Progress → Success
 ## Workflow
 
 ### Before (Old):
-1. Fetch row
-2. Fill form
-3. Extract generic data
-4. Update sheet
+1. Fetch all rows
+2. Process each row
+3. Fill form
+4. Extract generic data
+5. Update sheet
 
 ### Now (New):
-1. Fetch row
-2. **Mark "In Progress"** ⬅️ NEW
-3. **Sanitize data** ⬅️ NEW
-4. Fill form
-5. **Extract 4 card fields only** ⬅️ CHANGED
-6. Update sheet with card data
+1. Fetch all rows
+2. **Filter valid tasks** ⬅️ NEW (based on RedeemCode & Status)
+3. **Mark "In Progress"** ⬅️ NEW
+4. **Sanitize data** ⬅️ NEW
+5. Fill form
+6. **Extract 4 card fields only** ⬅️ CHANGED
+7. Update sheet with card data
 
 ---
 
@@ -279,9 +299,35 @@ REFACTORING_NOTES.md     ← Detailed documentation
 
 ---
 
+## Task Filtering (NEW!)
+
+The bot now automatically filters which rows to process:
+
+**✅ Will Process:**
+- RedeemCode = 12 characters
+- Status = empty
+- Email, FirstName, LastName = present
+
+**❌ Will Skip:**
+- RedeemCode empty or ≠ 12 chars
+- Status not empty (Success, Failed, In Progress, etc.)
+- Missing required fields
+
+**To retry a failed task:**
+Clear the Status cell and run again.
+
+**Test filtering:**
+```bash
+node test-task-filtering.js
+```
+
+See `TASK_FILTERING_GUIDE.md` for details.
+
+---
+
 ## Summary
 
-**3 Things You Must Do:**
+**4 Things You Must Do:**
 
 1. **Update your Google Sheet:**
    Add columns: Status, Amount, CardNumber, Exp, CVV, Timestamp, Error
@@ -292,13 +338,17 @@ REFACTORING_NOTES.md     ← Detailed documentation
 3. **Update card data selectors:**
    Edit `config/config.js` → `iframeSelectors.fields`
 
+4. **Ensure RedeemCodes are 12 characters:**
+   Only rows with 12-char codes and empty Status will be processed
+
 **Optional:**
-4. Add custom sanitization in `sanitizeRowData()` function
+5. Add custom sanitization in `sanitizeRowData()` function
 
 **Test:**
 ```bash
-node test-mapping.js   # Verify configuration
-npm start              # Run with one row
+node test-mapping.js        # Verify configuration
+node test-task-filtering.js # Check which tasks will run
+npm start                   # Run the bot
 ```
 
 Done! 🎉
