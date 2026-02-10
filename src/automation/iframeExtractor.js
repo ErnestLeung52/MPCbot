@@ -11,8 +11,6 @@ class IframeExtractor {
    */
   async waitForIframe(page, iframeSelector, timeout = 30000) {
     try {
-      logger.info(`Waiting for iframe: ${iframeSelector}`);
-
       // Wait for iframe element to appear
       await page.waitForSelector(iframeSelector, {
         state: 'attached',
@@ -36,7 +34,6 @@ class IframeExtractor {
         throw new Error('Could not access iframe content');
       }
 
-      logger.info('Iframe loaded successfully');
       return frame;
     } catch (error) {
       logger.error(`Failed to load iframe: ${error.message}`);
@@ -52,8 +49,6 @@ class IframeExtractor {
    */
   async getIframeByIndex(page, index = 0) {
     try {
-      logger.debug(`Getting iframe at index ${index}`);
-
       const frames = page.frames();
       
       if (index >= frames.length) {
@@ -75,8 +70,6 @@ class IframeExtractor {
    */
   async getIframeByUrl(page, urlPattern) {
     try {
-      logger.debug(`Looking for iframe with URL pattern: ${urlPattern}`);
-
       // Convert string to RegExp if needed
       const pattern = typeof urlPattern === 'string' 
         ? new RegExp(urlPattern) 
@@ -89,7 +82,6 @@ class IframeExtractor {
         throw new Error(`No iframe found matching URL pattern: ${urlPattern}`);
       }
 
-      logger.debug(`Found iframe: ${frame.url()}`);
       return frame;
     } catch (error) {
       logger.error(`Failed to get iframe by URL: ${error.message}`);
@@ -106,8 +98,6 @@ class IframeExtractor {
    */
   async extractText(frame, selector, timeout = 10000) {
     try {
-      logger.debug(`Extracting text from: ${selector}`);
-
       // Wait for element in iframe
       await frame.waitForSelector(selector, {
         state: 'visible',
@@ -117,7 +107,6 @@ class IframeExtractor {
       // Extract text content
       const text = await frame.$eval(selector, el => el.textContent.trim());
 
-      logger.debug(`Extracted text: ${text.substring(0, 100)}...`);
       return text;
     } catch (error) {
       logger.error(`Failed to extract text from ${selector}: ${error.message}`);
@@ -135,8 +124,6 @@ class IframeExtractor {
    */
   async extractAttribute(frame, selector, attribute, timeout = 10000) {
     try {
-      logger.debug(`Extracting attribute "${attribute}" from: ${selector}`);
-
       // Wait for element in iframe
       await frame.waitForSelector(selector, {
         state: 'attached',
@@ -150,7 +137,6 @@ class IframeExtractor {
         attribute
       );
 
-      logger.debug(`Extracted attribute: ${value}`);
       return value;
     } catch (error) {
       logger.error(`Failed to extract attribute from ${selector}: ${error.message}`);
@@ -167,8 +153,6 @@ class IframeExtractor {
    */
   async extractMultiple(frame, selector, timeout = 10000) {
     try {
-      logger.debug(`Extracting multiple elements: ${selector}`);
-
       // Wait for at least one element
       await frame.waitForSelector(selector, {
         state: 'attached',
@@ -180,7 +164,6 @@ class IframeExtractor {
         elements.map(el => el.textContent.trim())
       );
 
-      logger.debug(`Extracted ${texts.length} elements`);
       return texts;
     } catch (error) {
       logger.error(`Failed to extract multiple elements: ${error.message}`);
@@ -196,11 +179,8 @@ class IframeExtractor {
    */
   async extractCustom(frame, evalFunction) {
     try {
-      logger.debug('Extracting data with custom function');
-
       const data = await frame.evaluate(evalFunction);
 
-      logger.debug('Custom extraction completed');
       return data;
     } catch (error) {
       logger.error(`Custom extraction failed: ${error.message}`);
@@ -220,8 +200,6 @@ class IframeExtractor {
    */
   async extract(page, config) {
     try {
-      logger.info('Starting data extraction from iframe');
-
       // Get iframe
       let frame;
       if (config.iframeSelector) {
@@ -266,7 +244,6 @@ class IframeExtractor {
             }
 
             extractedData[fieldName] = value;
-            logger.debug(`Extracted ${fieldName}: ${JSON.stringify(value).substring(0, 100)}`);
           } catch (fieldError) {
             logger.warn(`Failed to extract ${fieldName}: ${fieldError.message}`);
             extractedData[fieldName] = null;
@@ -274,7 +251,6 @@ class IframeExtractor {
         }
       }
 
-      logger.info(`Extraction completed. Extracted ${Object.keys(extractedData).length} fields`);
       return extractedData;
     } catch (error) {
       logger.error(`Iframe extraction failed: ${error.message}`);
@@ -291,15 +267,12 @@ class IframeExtractor {
    */
   async waitForText(frame, text, timeout = 10000) {
     try {
-      logger.debug(`Waiting for text in iframe: ${text}`);
-
       await frame.waitForFunction(
         (searchText) => document.body.textContent.includes(searchText),
         text,
         { timeout }
       );
 
-      logger.debug('Text found in iframe');
       return true;
     } catch (error) {
       logger.error(`Text not found in iframe: ${error.message}`);

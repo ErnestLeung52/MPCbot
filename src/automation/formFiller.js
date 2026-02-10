@@ -13,8 +13,6 @@ class FormFiller {
     try {
       const targetUrl = url || config.targetUrl;
       
-      logger.info(`Navigating to ${targetUrl}`);
-      
       await page.goto(targetUrl, {
         waitUntil: 'networkidle',
         timeout: 30000
@@ -22,8 +20,6 @@ class FormFiller {
 
       // Random delay to simulate user reading page
       await humanBehavior.simulateReading(page, 2000);
-
-      logger.info('Page loaded successfully');
     } catch (error) {
       logger.error(`Failed to navigate to page: ${error.message}`);
       throw error;
@@ -41,9 +37,6 @@ class FormFiller {
     try {
       const fullUrl = baseUrl + redeemCode;
       
-      logger.info(`Navigating to redeem URL with code: ${redeemCode}`);
-      logger.debug(`Full URL: ${fullUrl}`);
-      
       await page.goto(fullUrl, {
         waitUntil: 'networkidle',
         timeout: 30000
@@ -52,18 +45,8 @@ class FormFiller {
       // Wait for page to fully load
       await humanBehavior.simulateReading(page, 2000);
 
-      logger.info('Redeem page loaded, validating response...');
-
       // Check if redeem code is valid by looking for error indicators
-      const pageValidation = await this.validateRedeemPage(page);
-
-      if (pageValidation.success) {
-        logger.info('✓ Redeem code is valid - Form page loaded successfully');
-      } else {
-        logger.warn(`✗ Redeem code validation failed: ${pageValidation.message}`);
-      }
-
-      return pageValidation;
+      return await this.validateRedeemPage(page);
     } catch (error) {
       logger.error(`Failed to navigate with redeem code: ${error.message}`);
       throw error;
@@ -77,9 +60,6 @@ class FormFiller {
    */
   async validateRedeemPage(page) {
     try {
-      const currentUrl = page.url();
-      logger.debug(`Current URL: ${currentUrl}`);
-
       // Primary check: Look for the specific "Invalid code" error element
       // This element appears when redeem code is incorrect:
       // <small id="codeNotFoundError" class="text-danger">Invalid code. Please try again.</small>
@@ -88,14 +68,11 @@ class FormFiller {
 
       if (isErrorVisible) {
         const errorText = await errorElement.textContent().catch(() => 'Invalid code. Please try again.');
-        logger.warn(`Found error element #codeNotFoundError: "${errorText.trim()}"`);
         return {
           success: false,
           message: errorText.trim()
         };
       }
-
-      logger.debug('No error element found - redeem code appears valid');
 
       // Additional check: Look for the error wrapper (in case the error is present but not visible yet)
       const errorWrapper = page.locator('#codeNotFoundErrorWrapper');
@@ -107,7 +84,6 @@ class FormFiller {
           // Check if the wrapper contains the error text
           const wrapperText = await errorWrapper.textContent().catch(() => '');
           if (wrapperText.toLowerCase().includes('invalid code')) {
-            logger.warn(`Found error in wrapper #codeNotFoundErrorWrapper: "${wrapperText.trim()}"`);
             return {
               success: false,
               message: 'Invalid code. Please try again.'
@@ -117,7 +93,6 @@ class FormFiller {
       }
 
       // Success: No error indicators found, redeem code is valid
-      logger.info('✓ No error indicators found - redeem code validated successfully');
       return {
         success: true,
         message: 'Form page loaded successfully'
@@ -141,8 +116,6 @@ class FormFiller {
    */
   async fillTextField(page, selector, value) {
     try {
-      logger.debug(`Filling text field: ${selector}`);
-      
       // Scroll to element
       await page.locator(selector).scrollIntoViewIfNeeded();
       await humanBehavior.randomDelay(300, 700);
@@ -167,8 +140,6 @@ class FormFiller {
    */
   async selectDropdown(page, selector, value) {
     try {
-      logger.debug(`Selecting dropdown: ${selector}`);
-      
       await humanBehavior.humanSelect(page, selector, value);
       await humanBehavior.randomDelay(200, 500);
     } catch (error) {
@@ -186,8 +157,6 @@ class FormFiller {
    */
   async setCheckbox(page, selector, checked) {
     try {
-      logger.debug(`Setting checkbox: ${selector}`);
-      
       await humanBehavior.humanCheck(page, selector, checked);
       await humanBehavior.randomDelay(200, 500);
     } catch (error) {
@@ -204,8 +173,6 @@ class FormFiller {
    */
   async selectRadio(page, selector) {
     try {
-      logger.debug(`Selecting radio button: ${selector}`);
-      
       await humanBehavior.humanClick(page, selector);
       await humanBehavior.randomDelay(200, 500);
     } catch (error) {
@@ -223,8 +190,6 @@ class FormFiller {
    */
   async fillForm(page, formData, formSelectors) {
     try {
-      logger.info('Starting form fill');
-
       // Fill each field based on mapping
       for (const [fieldKey, selector] of Object.entries(formSelectors)) {
         // Skip submit button
@@ -236,12 +201,10 @@ class FormFiller {
         
         // Skip empty optional fields
         if (!value && fieldKey === 'apartment') {
-          logger.debug(`Skipping optional field "${fieldKey}" (empty)`);
           continue;
         }
         
         if (!value) {
-          logger.warn(`No value for field "${fieldKey}", skipping`);
           continue;
         }
 
@@ -251,8 +214,6 @@ class FormFiller {
         // Random delay between fields
         await humanBehavior.randomDelay();
       }
-
-      logger.info('Form filled successfully');
     } catch (error) {
       logger.error(`Failed to fill form: ${error.message}`);
       throw error;
@@ -301,8 +262,6 @@ class FormFiller {
    */
   async submitForm(page, submitSelector) {
     try {
-      logger.info('Preparing to submit form');
-
       // Longer delay before submit
       await humanBehavior.submitDelay();
 
@@ -312,8 +271,6 @@ class FormFiller {
 
       // Click submit
       await humanBehavior.humanClick(page, submitSelector);
-
-      logger.info('Form submitted');
 
       // Wait for navigation or response
       await humanBehavior.randomDelay(1000, 2000);
@@ -350,8 +307,6 @@ class FormFiller {
 
       // Submit form
       await this.submitForm(page, submitSelector);
-
-      logger.info('Form filling and submission completed');
     } catch (error) {
       logger.error(`Form filling workflow failed: ${error.message}`);
       throw error;
@@ -366,19 +321,15 @@ class FormFiller {
    */
   async verifyForm(page, fieldMapping) {
     try {
-      logger.debug('Verifying form fields');
-
       for (const selector of Object.values(fieldMapping)) {
         const element = page.locator(selector);
         const value = await element.inputValue().catch(() => '');
         
         if (!value) {
-          logger.warn(`Field ${selector} is empty`);
           return false;
         }
       }
 
-      logger.debug('Form verification passed');
       return true;
     } catch (error) {
       logger.error(`Form verification failed: ${error.message}`);

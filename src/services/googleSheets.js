@@ -42,7 +42,7 @@ class GoogleSheetsService {
       this.sheets = google.sheets({ version: 'v4', auth: authClient });
       this.initialized = true;
 
-      logger.info('Google Sheets API initialized successfully');
+      logger.info(`✓ Connected to Google Sheets: "${this.sheetName}"`);
     } catch (error) {
       logger.error(`Failed to initialize Google Sheets API: ${error.message}`);
       throw error;
@@ -73,7 +73,6 @@ class GoogleSheetsService {
       });
 
       const rows = response.data.values || [];
-      logger.info(`Fetched ${rows.length} rows from Google Sheets`);
       return rows;
     } catch (error) {
       logger.error(`Failed to fetch rows: ${error.message}`);
@@ -95,7 +94,6 @@ class GoogleSheetsService {
       });
 
       const headers = response.data.values ? response.data.values[0] : [];
-      logger.info(`Fetched ${headers.length} headers from Google Sheets`);
       return headers;
     } catch (error) {
       logger.error(`Failed to fetch headers: ${error.message}`);
@@ -148,8 +146,6 @@ class GoogleSheetsService {
           data: updates
         }
       });
-
-      logger.info(`Updated row ${sheetRowNumber} with ${updates.length} column(s)`);
     } catch (error) {
       logger.error(`Failed to update row: ${error.message}`);
       throw error;
@@ -179,8 +175,6 @@ class GoogleSheetsService {
           values: [[value]]
         }
       });
-
-      logger.debug(`Updated cell ${range} with value: ${value}`);
     } catch (error) {
       logger.error(`Failed to update cell: ${error.message}`);
       throw error;
@@ -204,8 +198,6 @@ class GoogleSheetsService {
           values: [values]
         }
       });
-
-      logger.info(`Appended new row with ${values.length} value(s)`);
     } catch (error) {
       logger.error(`Failed to append row: ${error.message}`);
       throw error;

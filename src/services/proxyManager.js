@@ -62,10 +62,11 @@ class ProxyManager {
       });
 
       this.loaded = true;
-      logger.info(`Loaded ${this.proxies.length} valid proxy/proxies`);
-
+      
       if (this.proxies.length === 0) {
-        logger.warn('No valid proxies loaded. Automation will run without proxy.');
+        logger.warn('No valid proxies loaded - running without proxy');
+      } else {
+        logger.info(`✓ Loaded ${this.proxies.length} proxy/proxies`);
       }
     } catch (error) {
       logger.error(`Failed to load proxies: ${error.message}`);
@@ -87,7 +88,6 @@ class ProxyManager {
 
     // Check if server is provided
     if (!proxy.server || typeof proxy.server !== 'string') {
-      logger.warn('Proxy missing "server" field');
       return false;
     }
 
@@ -98,7 +98,6 @@ class ProxyManager {
     );
 
     if (!hasValidProtocol) {
-      logger.warn(`Proxy server must start with http://, https://, or socks5://: ${proxy.server}`);
       return false;
     }
 
@@ -106,11 +105,9 @@ class ProxyManager {
     try {
       const url = new URL(proxy.server);
       if (!url.hostname || !url.port) {
-        logger.warn(`Invalid proxy format: ${proxy.server}`);
         return false;
       }
     } catch (error) {
-      logger.warn(`Invalid proxy URL: ${proxy.server}`);
       return false;
     }
 
@@ -162,9 +159,7 @@ class ProxyManager {
     }
 
     const randomIndex = Math.floor(Math.random() * this.proxies.length);
-    const proxy = this.proxies[randomIndex];
-
-    return proxy;
+    return this.proxies[randomIndex];
   }
 
   /**
@@ -178,7 +173,6 @@ class ProxyManager {
     }
 
     if (index < 0 || index >= this.proxies.length) {
-      logger.warn(`Proxy index ${index} out of range`);
       return null;
     }
 

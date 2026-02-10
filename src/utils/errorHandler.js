@@ -38,15 +38,11 @@ class ErrorHandler {
           `error-task${taskNumber || 'unknown'}-${timestamp}.png`
         );
         await page.screenshot({ path: screenshotPath, fullPage: true });
-        logger.info(`Screenshot saved: ${screenshotPath}`);
+        logger.info(`Screenshot saved: ${path.basename(screenshotPath)}`);
       } catch (screenshotError) {
         logger.error(`Failed to capture screenshot: ${screenshotError.message}`);
       }
     }
-
-    // Classify error type
-    const errorType = this.classifyError(error);
-    logger.error(`Error type: ${errorType}`);
 
     // Stop execution if configured to do so
     if (config.errorHandling.stopOnError) {

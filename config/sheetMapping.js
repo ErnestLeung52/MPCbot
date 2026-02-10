@@ -252,9 +252,19 @@ function buildFormData(rowData) {
  * @returns {Object} - Update data object with sheet column names as keys
  */
 function buildUpdateData({ status, extractedData = {}, error = null }) {
+	// Format timestamp as MM-DD-YY HH:MM:SS in local time
+	const now = new Date();
+	const month = String(now.getMonth() + 1).padStart(2, '0');
+	const day = String(now.getDate()).padStart(2, '0');
+	const year = String(now.getFullYear()).slice(-2);
+	const hours = String(now.getHours()).padStart(2, '0');
+	const minutes = String(now.getMinutes()).padStart(2, '0');
+	const seconds = String(now.getSeconds()).padStart(2, '0');
+	const timestamp = `${month}-${day}-${year} ${hours}:${minutes}:${seconds}`;
+
 	const updateData = {
 		[COLUMN_MAPPINGS.status]: status,
-		[COLUMN_MAPPINGS.timestamp]: new Date().toISOString(),
+		[COLUMN_MAPPINGS.timestamp]: timestamp,
 	};
 
 	// Add extracted card data (only these 4 fields)

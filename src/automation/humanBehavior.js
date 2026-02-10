@@ -24,7 +24,6 @@ class HumanBehavior {
 		const maxDelay = max !== null ? max : config.automation.maxDelay;
 		const delay = this.getRandomDelay(minDelay, maxDelay);
 
-		logger.debug(`Waiting ${delay}ms`);
 		await new Promise((resolve) => setTimeout(resolve, delay));
 	}
 
@@ -82,8 +81,6 @@ class HumanBehavior {
 					await this.randomDelay(300, 800);
 				}
 			}
-
-			logger.debug(`Typed text into ${selector}`);
 		} catch (error) {
 			logger.error(`Failed to type into ${selector}: ${error.message}`);
 			throw error;
@@ -125,8 +122,6 @@ class HumanBehavior {
 
 			// Click the element
 			await element.click();
-
-			logger.debug(`Clicked ${selector}`);
 		} catch (error) {
 			logger.error(`Failed to click ${selector}: ${error.message}`);
 			throw error;
@@ -153,8 +148,6 @@ class HumanBehavior {
 
 			// Wait for scroll to complete
 			await this.randomDelay(500, 1000);
-
-			logger.debug(`Scrolled ${scrollDistance}px`);
 		} catch (error) {
 			logger.error(`Failed to scroll: ${error.message}`);
 			throw error;
@@ -171,8 +164,6 @@ class HumanBehavior {
 		try {
 			const readingTime = duration || this.getRandomDelay(2000, 5000);
 			const scrollIntervals = Math.floor(readingTime / 1500);
-
-			logger.debug(`Simulating reading for ${readingTime}ms`);
 
 			for (let i = 0; i < scrollIntervals; i++) {
 				await this.randomDelay(1000, 2000);
@@ -202,10 +193,7 @@ class HumanBehavior {
 			const y = this.getRandomDelay(0, viewport.height);
 
 			await page.mouse.move(x, y, { steps: this.getRandomDelay(10, 30) });
-
-			logger.debug(`Random mouse movement to (${x}, ${y})`);
 		} catch (error) {
-			logger.debug(`Random mouse movement failed: ${error.message}`);
 			// Don't throw - this is not critical
 		}
 	}
@@ -227,8 +215,6 @@ class HumanBehavior {
 
 			// Select the value
 			await page.selectOption(selector, value);
-
-			logger.debug(`Selected option "${value}" from ${selector}`);
 		} catch (error) {
 			logger.error(`Failed to select from ${selector}: ${error.message}`);
 			throw error;
@@ -251,8 +237,6 @@ class HumanBehavior {
 			if (isChecked !== checked) {
 				await this.humanClick(page, selector);
 			}
-
-			logger.debug(`${checked ? 'Checked' : 'Unchecked'} ${selector}`);
 		} catch (error) {
 			logger.error(`Failed to check ${selector}: ${error.message}`);
 			throw error;
@@ -268,8 +252,6 @@ class HumanBehavior {
 	async waitForNavigation(page, action) {
 		try {
 			await Promise.all([page.waitForLoadState('networkidle', { timeout: 30000 }), action()]);
-
-			logger.debug('Navigation completed');
 		} catch (error) {
 			logger.error(`Navigation failed: ${error.message}`);
 			throw error;
@@ -283,7 +265,6 @@ class HumanBehavior {
 	async submitDelay() {
 		const delay = this.getRandomDelay(config.automation.submitDelay.min, config.automation.submitDelay.max);
 
-		logger.debug(`Waiting ${delay}ms before submit`);
 		await new Promise((resolve) => setTimeout(resolve, delay));
 	}
 }

@@ -10,13 +10,13 @@ if (!fs.existsSync(config.logging.dir)) {
 
 // Define log format
 const logFormat = winston.format.combine(
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
+  winston.format.timestamp({ format: 'HH:mm:ss' }),
   winston.format.errors({ stack: true }),
   winston.format.printf(({ timestamp, level, message, stack }) => {
     if (stack) {
-      return `${timestamp} [${level.toUpperCase()}]: ${message}\n${stack}`;
+      return `[${timestamp}] ${message}\n${stack}`;
     }
-    return `${timestamp} [${level.toUpperCase()}]: ${message}`;
+    return `[${timestamp}] ${message}`;
   })
 );
 
