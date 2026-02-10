@@ -1,29 +1,34 @@
 {
-  "sites": [
-    {
-      "name": "Bot Sannysoft",
-      "url": "https://bot.sannysoft.com",
-      "description": "Comprehensive bot detection tests - checks for common automation indicators"
-    },
-    {
-      "name": "Are You Headless",
-      "url": "https://arh.antoinevastel.com/bots/areyouheadless",
-      "description": "Tests for headless browser detection"
-    },
-    {
-      "name": "PixelScan",
-      "url": "https://pixelscan.net",
-      "description": "Browser fingerprinting and bot detection analysis"
-    },
-    {
-      "name": "Fingerprint Scan",
-      "url": "https://fingerprint-scan.com",
-      "description": "Advanced browser fingerprinting and tracking detection"
-    },
-    {
-      "name": "Rebrowser Bot Detector",
-      "url": "https://bot-detector.rebrowser.net/",
-      "description": "Modern tests to detect automated browser behavior - Chromium-specific detection"
-    }
-  ]
+	"sites": [
+		{
+			"name": "Bot Sannysoft",
+			"url": "https://bot.sannysoft.com",
+			"description": "Comprehensive bot detection tests - checks for common automation indicators"
+		},
+		{
+			"name": "PixelScan",
+			"url": "https://pixelscan.net",
+			"description": "Browser fingerprinting and bot detection analysis"
+		},
+		{
+			"name": "Fingerprint Scan",
+			"url": "https://fingerprint-scan.com",
+			"description": "Advanced browser fingerprinting and tracking detection"
+		},
+		{
+			"name": "Rebrowser Bot Detector",
+			"url": "https://bot-detector.rebrowser.net/",
+			"description": "Modern tests to detect automated browser behavior - Chromium-specific detection"
+		},
+		{
+			"name": "CreepJS",
+			"url": "https://abrahamjuliot.github.io/creepjs/",
+			"description": "Advanced fingerprinting test - headless detection, lie detection, bot probability score"
+		},
+		{
+			"name": "BrowserScan",
+			"url": "https://www.browserscan.net/",
+			"description": "Comprehensive browser analysis - CDP detection, WebRTC leaks, canvas fingerprinting"
+		}
+	]
 }
