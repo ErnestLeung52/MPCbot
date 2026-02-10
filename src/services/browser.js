@@ -47,10 +47,15 @@ class BrowserService {
 				// Let patchright handle user agent automatically
 				// DON'T add custom user_agent here - it's a detection vector
 
-				// DON'T add args array - patchright handles all flags:
-				// - Adds: --disable-blink-features=AutomationControlled
-				// - Removes: --enable-automation, --disable-popup-blocking, etc.
-				// - Enables extensions and default apps (like real browser)
+				// GPU-specific flags to force M1 Metal backend instead of SwiftShader
+				// This is critical for avoiding GPU fingerprint detection
+				// Patchright will merge these with its own stealth flags
+				args: [
+					'--use-gl=angle',           // Use ANGLE (Almost Native Graphics Layer Engine)
+					'--use-angle=metal',        // Force Metal backend for M1 GPU
+					'--ignore-gpu-blocklist',   // Don't block GPU even if blacklisted
+					'--enable-gpu-rasterization', // Enable GPU-accelerated rasterization
+				],
 			};
 
 			// Add proxy if provided
