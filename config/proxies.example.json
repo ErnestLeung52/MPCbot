@@ -1,3 +1,15 @@
-18.144.43.234:3128:eleung:taurus16
-54.219.114.236:3128:eleung:taurus16
-54.151.125.112:3128:eleung:taurus16
+# Proxy Configuration File
+# Format: IP:PORT:USERNAME:PASSWORD (one proxy per line)
+# Lines starting with # are ignored (comments)
+# 
+# Example:
+# 12.34.56.78:8080:myuser:mypass
+# 98.76.54.32:3128:anotheruser:anotherpass
+#
+# To use proxies:
+# 1. Copy this file to proxies.json (same directory)
+# 2. Add your proxies (one per line)
+# 3. The bot will automatically rotate through them
+#
+# Without username/password (if proxy doesn't require auth):
+# 12.34.56.78:8080::

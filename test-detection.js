@@ -20,14 +20,8 @@ async function testSite(site, useProxy = false) {
 
 	try {
 		console.log('');
-		console.log('='.repeat(60));
 		console.log(`Testing: ${site.name}`);
 		console.log(`URL: ${site.url}`);
-		console.log(`Description: ${site.description}`);
-		if (useProxy) {
-			console.log('Using proxy: Yes');
-		}
-		console.log('-'.repeat(60));
 
 		// Get proxy if requested
 		const proxy = useProxy ? proxyManager.getNext() : null;
@@ -42,107 +36,22 @@ async function testSite(site, useProxy = false) {
 			timeout: 30000,
 		});
 
-		// Wait for page to fully load and run tests
-		await page.waitForTimeout(5000);
-
-		// Take screenshot
-		const screenshotPath = `./screenshots/detection-test-${site.name.toLowerCase().replace(/\s/g, '-')}.png`;
-		await page.screenshot({ path: screenshotPath, fullPage: true });
-		console.log(`Screenshot saved: ${screenshotPath}`);
-
-		// Try to extract detection results (site-specific)
-		if (site.name === 'Bot Sannysoft') {
-			const results = await page
-				.evaluate(() => {
-					const rows = Array.from(document.querySelectorAll('tr'));
-					const failed = rows.filter((row) => {
-						const text = row.textContent || '';
-						return text.includes('FAILED') || text.includes('failed');
-					}).length;
-
-					return {
-						totalTests: rows.length,
-						failedTests: failed,
-					};
-				})
-				.catch(() => ({ totalTests: 'Unknown', failedTests: 'Unknown' }));
-
-			console.log(`Tests run: ${results.totalTests}`);
-			console.log(`Failed tests: ${results.failedTests}`);
-
-			if (results.failedTests > 0) {
-				console.log('⚠️  Some tests failed - check screenshot for details');
-			} else {
-				console.log('✓ All tests passed!');
-			}
-		} else if (site.name === 'Are You Headless') {
-			const results = await page
-				.evaluate(() => {
-					const body = document.body.textContent || '';
-					const isHeadless = body.toLowerCase().includes('you are headless');
-					return { isHeadless };
-				})
-				.catch(() => ({ isHeadless: 'Unknown' }));
-
-			if (results.isHeadless === true) {
-				console.log('❌ Detected as HEADLESS browser');
-			} else if (results.isHeadless === false) {
-				console.log('✓ Not detected as headless');
-			} else {
-				console.log('⚠️  Could not determine headless status - check screenshot');
-			}
-		} else if (site.name === 'Rebrowser Bot Detector') {
-			const results = await page
-				.evaluate(() => {
-					const table = document.querySelector('table');
-					if (!table) return { tests: 'Unknown', message: 'Table not found' };
-
-					const rows = Array.from(table.querySelectorAll('tbody tr'));
-					const testResults = rows
-						.map((row) => {
-							const cells = row.querySelectorAll('td');
-							return {
-								name: cells[0]?.textContent?.trim() || '',
-								detected: row.classList.contains('detected') || row.style.backgroundColor === 'red',
-							};
-						})
-						.filter((r) => r.name);
-
-					const detectedCount = testResults.filter((t) => t.detected).length;
-					return {
-						totalTests: testResults.length,
-						detectedCount,
-						tests: testResults,
-					};
-				})
-				.catch(() => ({ totalTests: 'Unknown', detectedCount: 'Unknown' }));
-
-			console.log(`Tests run: ${results.totalTests}`);
-			console.log(`Detected as bot: ${results.detectedCount} tests`);
-
-			if (results.detectedCount > 0) {
-				console.log('⚠️  Some automation detected - check screenshot for details');
-			} else if (results.detectedCount === 0) {
-				console.log('✓ No automation detected!');
-			} else {
-				console.log('ℹ️  Check screenshot for detailed results');
-			}
-		} else if (site.name === 'PixelScan' || site.name === 'Fingerprint Scan') {
-			console.log('ℹ️  Check screenshot for detailed analysis');
-			console.log('   Look for: Bot Score, Fingerprint Consistency, Automation Indicators');
-		}
-
-		// Keep browser open for manual inspection
+		console.log('✓ Browser opened - You can now manually inspect the page');
+		console.log('  Press Ctrl+C to quit when done');
 		console.log('');
-		console.log('Browser will stay open for 30 seconds for manual inspection...');
-		await page.waitForTimeout(30000);
 
-		await browserService.close(browser);
-		console.log('Test completed');
+		// Keep browser open indefinitely until user manually closes it
+		// No timeout, no automatic closure
+		await new Promise(() => {}); // Never resolves - waits forever
+
 	} catch (error) {
-		console.error(`Test failed: ${error.message}`);
+		if (error.message.includes('Target page, context or browser has been closed')) {
+			console.log('Browser closed by user');
+		} else {
+			console.error(`Error: ${error.message}`);
+		}
 		if (browser) {
-			await browserService.close(browser);
+			await browserService.close(browser).catch(() => {});
 		}
 	}
 }
