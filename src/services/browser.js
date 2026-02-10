@@ -12,13 +12,13 @@ class BrowserService {
 	 * Launch browser with PROPER patchright configuration
 	 * Based on: https://roundproxies.com/blog/patchright/
 	 *
-	 * KEY CHANGES:
+	 * KEY CONFIGURATION:
 	 * 1. Use launchPersistentContext (not launch) - creates real Chrome profile
 	 * 2. Use channel: 'chrome' - real Chrome, not Chromium (critical!)
 	 * 3. NO custom userAgent - let patchright handle it
 	 * 4. NO custom viewport - use viewport: null for native resolution
 	 * 5. NO custom headers - detection vector
-	 * 6. NO args array - let patchright's patches handle everything
+	 * 6. GPU args only - force M1 Metal backend to avoid SwiftShader detection
 	 *
 	 * @param {Object} proxy - Proxy configuration (optional)
 	 * @returns {Promise<BrowserContext>} - Patchright persistent context

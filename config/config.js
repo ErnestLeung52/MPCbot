@@ -16,26 +16,9 @@ const config = {
   browser: {
     // IMPORTANT: Set to false for production scraping
     // Modern detection can spot headless browsers instantly
+    // Patchright with real Chrome (channel: 'chrome') handles all stealth automatically
     // Reference: https://roundproxies.com/blog/patchright/
     headless: process.env.HEADLESS === 'true',
-    
-    // DEPRECATED: User agents and viewports are now handled by patchright
-    // DO NOT customize these - let Chrome use its natural values
-    // Custom user agents and viewports are detection vectors
-    //
-    // The following are kept for backward compatibility but NOT used:
-    viewport: {
-      width: 1920,
-      height: 1080
-    },
-    userAgents: [
-      // These are no longer used - patchright handles user agent automatically
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    ],
-    viewportSizes: [
-      // These are no longer used - viewport is set to null for native resolution
-      { width: 1920, height: 1080 },
-    ]
   },
 
   // Automation Settings
