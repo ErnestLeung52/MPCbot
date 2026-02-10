@@ -9,8 +9,9 @@ const config = {
     credentialsPath: process.env.GOOGLE_APPLICATION_CREDENTIALS || './credentials.json'
   },
 
-  // Target Website
-  targetUrl: process.env.TARGET_URL,
+  // Target Website - Base URL for redeem page
+  // The redeem code will be appended to this URL: targetUrl + redeemCode
+  targetUrl: 'https://www.myprepaidcenter.com/redeem?ecode=',
 
   // Browser Settings
   browser: {
@@ -79,7 +80,7 @@ function validateConfig() {
   }
 
   if (!config.targetUrl) {
-    errors.push('TARGET_URL is required in .env file');
+    errors.push('targetUrl is required in config.js');
   }
 
   if (errors.length > 0) {

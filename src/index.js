@@ -227,11 +227,39 @@ class MPCBot {
       browser = await browserService.launch(proxy);
       page = await browserService.createPage(browser);
 
-      // Fill form with data
-      logger.info('Filling form...');
-      
       // Extract row data using sheet mappings
       const extractedData = sheetMapping.extractRowData(rowData, headers);
+      const redeemCode = extractedData.redeemCode;
+
+      if (!redeemCode) {
+        throw new Error('No redeem code found in row data');
+      }
+
+      // Step 1: Navigate with redeem code and validate
+      logger.info('Step 1: Navigating with redeem code...');
+      const validation = await formFiller.navigateWithRedeemCode(
+        page, 
+        config.targetUrl, 
+        redeemCode
+      );
+
+      // Step 2: Check if redeem code is valid
+      if (!validation.success) {
+        logger.error(`Redeem code validation failed: ${validation.message}`);
+        
+        // Update sheet with invalid code status
+        await googleSheets.updateRow(rowIndex, sheetMapping.buildUpdateData({
+          status: 'Invalid Code',
+          error: validation.message
+        }));
+
+        throw new Error(`Invalid redeem code: ${validation.message}`);
+      }
+
+      logger.info('✓ Redeem code validated successfully');
+
+      // Step 3: Fill form with user data
+      logger.info('Step 2: Filling form with user information...');
       
       // Sanitize data before form submission
       logger.debug('Sanitizing row data...');
@@ -246,12 +274,12 @@ class MPCBot {
       
       logger.debug('Form data prepared:', JSON.stringify(formData, null, 2));
 
-      await formFiller.fillAndSubmit(page, {
-        formData,
-        formSelectors,
-        submitSelector,
-        url: config.targetUrl
-      });
+      // Fill the form (without navigation since we already navigated)
+      await formFiller.fillForm(page, formData, formSelectors);
+
+      // Step 4: Submit the form
+      logger.info('Step 3: Submitting form...');
+      await formFiller.submitForm(page, submitSelector);
 
       // Extract card data from webpage
       logger.info('Extracting card data from webpage...');

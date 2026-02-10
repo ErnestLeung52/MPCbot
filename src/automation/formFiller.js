@@ -31,6 +31,108 @@ class FormFiller {
   }
 
   /**
+   * Navigate with redeem code and validate if it's valid
+   * @param {Page} page - Playwright page instance
+   * @param {string} baseUrl - Base URL (e.g., 'https://www.myprepaidcenter.com/redeem?ecode=')
+   * @param {string} redeemCode - Redeem code to append to URL
+   * @returns {Promise<Object>} - Object with {success: boolean, message: string}
+   */
+  async navigateWithRedeemCode(page, baseUrl, redeemCode) {
+    try {
+      const fullUrl = baseUrl + redeemCode;
+      
+      logger.info(`Navigating to redeem URL with code: ${redeemCode}`);
+      logger.debug(`Full URL: ${fullUrl}`);
+      
+      await page.goto(fullUrl, {
+        waitUntil: 'networkidle',
+        timeout: 30000
+      });
+
+      // Wait for page to fully load
+      await humanBehavior.simulateReading(page, 2000);
+
+      logger.info('Redeem page loaded, validating response...');
+
+      // Check if redeem code is valid by looking for error indicators
+      const pageValidation = await this.validateRedeemPage(page);
+
+      if (pageValidation.success) {
+        logger.info('✓ Redeem code is valid - Form page loaded successfully');
+      } else {
+        logger.warn(`✗ Redeem code validation failed: ${pageValidation.message}`);
+      }
+
+      return pageValidation;
+    } catch (error) {
+      logger.error(`Failed to navigate with redeem code: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Validate if the redeem page loaded successfully or shows an error
+   * @param {Page} page - Playwright page instance
+   * @returns {Promise<Object>} - Object with {success: boolean, message: string}
+   */
+  async validateRedeemPage(page) {
+    try {
+      const currentUrl = page.url();
+      logger.debug(`Current URL: ${currentUrl}`);
+
+      // Primary check: Look for the specific "Invalid code" error element
+      // This element appears when redeem code is incorrect:
+      // <small id="codeNotFoundError" class="text-danger">Invalid code. Please try again.</small>
+      const errorElement = page.locator('#codeNotFoundError');
+      const isErrorVisible = await errorElement.isVisible().catch(() => false);
+
+      if (isErrorVisible) {
+        const errorText = await errorElement.textContent().catch(() => 'Invalid code. Please try again.');
+        logger.warn(`Found error element #codeNotFoundError: "${errorText.trim()}"`);
+        return {
+          success: false,
+          message: errorText.trim()
+        };
+      }
+
+      logger.debug('No error element found - redeem code appears valid');
+
+      // Additional check: Look for the error wrapper (in case the error is present but not visible yet)
+      const errorWrapper = page.locator('#codeNotFoundErrorWrapper');
+      const isWrapperPresent = await errorWrapper.count().then(count => count > 0).catch(() => false);
+
+      if (isWrapperPresent) {
+        const wrapperVisible = await errorWrapper.isVisible().catch(() => false);
+        if (wrapperVisible) {
+          // Check if the wrapper contains the error text
+          const wrapperText = await errorWrapper.textContent().catch(() => '');
+          if (wrapperText.toLowerCase().includes('invalid code')) {
+            logger.warn(`Found error in wrapper #codeNotFoundErrorWrapper: "${wrapperText.trim()}"`);
+            return {
+              success: false,
+              message: 'Invalid code. Please try again.'
+            };
+          }
+        }
+      }
+
+      // Success: No error indicators found, redeem code is valid
+      logger.info('✓ No error indicators found - redeem code validated successfully');
+      return {
+        success: true,
+        message: 'Form page loaded successfully'
+      };
+
+    } catch (error) {
+      logger.error(`Error during page validation: ${error.message}`);
+      return {
+        success: false,
+        message: `Validation error: ${error.message}`
+      };
+    }
+  }
+
+  /**
    * Fill a text input field
    * @param {Page} page - Playwright page instance
    * @param {string} selector - CSS selector for the field
