@@ -71,20 +71,11 @@ class BrowserService {
 				if (proxy.password) {
 					launchOptions.proxy.password = proxy.password;
 				}
-
-				logger.debug('Launching Chrome with proxy');
-			} else {
-				logger.debug('Launching Chrome without proxy');
 			}
 
 			// Launch persistent context (NOT regular launch)
 			// This creates a real Chrome profile with history, making it undetectable
 			this.context = await chromium.launchPersistentContext(userDataDir, launchOptions);
-
-			logger.info('✓ Real Chrome launched with persistent profile (maximum stealth)');
-			logger.info('  Channel: chrome (not Chromium)');
-			logger.info('  Profile: Persistent user data directory');
-			logger.info('  Detection: Runtime.enable bypassed, CDP leaks patched');
 
 			return this.context;
 		} catch (error) {
@@ -120,7 +111,6 @@ class BrowserService {
 			// - All command flag leaks patched
 			// - Closed Shadow DOM access
 
-			logger.debug('New page created from persistent context');
 			return page;
 		} catch (error) {
 			logger.error(`Failed to create page: ${error.message}`);
@@ -161,7 +151,6 @@ class BrowserService {
 			const actualContext = context || this.context;
 			if (actualContext) {
 				await actualContext.close();
-				logger.debug('Browser context closed');
 				this.context = null;
 			}
 		} catch (error) {

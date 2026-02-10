@@ -8,7 +8,6 @@ const fs = require('fs');
 const path = require('path');
 const browserService = require('./src/services/browser');
 const proxyManager = require('./src/services/proxyManager');
-const logger = require('./src/utils/logger');
 
 // Load test sites from configuration file
 const configPath = path.join(__dirname, 'config', 'bot-detection-sites.json');
@@ -25,23 +24,27 @@ async function testSite(site, useProxy = false) {
 
 		// Get proxy if requested
 		const proxy = useProxy ? proxyManager.getNext() : null;
+		
+		if (proxy) {
+			// Extract IP from proxy server URL
+			const proxyIp = proxy.server.match(/(\d+\.\d+\.\d+\.\d+)/)?.[1];
+			console.log(`Proxy: ${proxyIp || proxy.server}`);
+		} else {
+			console.log('Proxy: None');
+		}
 
 		// Launch browser
 		browser = await browserService.launch(proxy);
 		const page = await browserService.createPage(browser);
 
-		// Navigate to test site
-		await page.goto(site.url, {
-			waitUntil: 'networkidle',
-			timeout: 30000,
-		});
+		// Navigate to test site - no waiting, no timeout
+		await page.goto(site.url);
 
-		console.log('✓ Browser opened - You can now manually inspect the page');
+		console.log('✓ Browser opened');
 		console.log('  Press Ctrl+C to quit when done');
 		console.log('');
 
 		// Keep browser open indefinitely until user manually closes it
-		// No timeout, no automatic closure
 		await new Promise(() => {}); // Never resolves - waits forever
 
 	} catch (error) {
@@ -58,70 +61,31 @@ async function testSite(site, useProxy = false) {
 
 function displayMenu() {
 	console.log('='.repeat(60));
-	console.log('MPCBot Anti-Detection Test Suite');
+	console.log('MPCBot Anti-Detection Test');
 	console.log('='.repeat(60));
 	console.log('');
 	console.log('Available Test Sites:');
 	console.log('');
 
 	TEST_SITES.forEach((site, index) => {
-		console.log(`  [${index + 1}] ${site.name}`);
-		console.log(`      ${site.url}`);
-		console.log(`      ${site.description}`);
-		console.log('');
+		console.log(`  [${index + 1}] ${site.name} - ${site.url}`);
 	});
 
+	console.log('');
 	console.log('Usage:');
 	console.log('  npm run test-detection          # Run all tests');
-	console.log('  npm run test-detection 1        # Run specific test by index');
-	console.log('  npm run test-detection 1,3,5    # Run multiple tests');
+	console.log('  npm run test-detection 1        # Run specific test');
+	console.log('  npm run test-detection 1,3      # Run multiple tests');
 	console.log('');
+	console.log('Note: Browser will stay open until you close it (Ctrl+C)');
 	console.log('='.repeat(60));
 }
 
-function printTestGuide() {
-	console.log('');
-	console.log('='.repeat(60));
-	console.log('What to look for in results:');
-	console.log('');
-	console.log('Bot Sannysoft:');
-	console.log('  ✓ navigator.webdriver should be undefined or false');
-	console.log('  ✓ No red "FAILED" indicators');
-	console.log('  ✓ Chrome should appear as a normal browser');
-	console.log('');
-	console.log('Are You Headless:');
-	console.log('  ✓ Should NOT detect as headless browser');
-	console.log('  ✓ All checks should pass');
-	console.log('');
-	console.log('PixelScan & Fingerprint Scan:');
-	console.log('  ✓ Low or zero bot score');
-	console.log('  ✓ Consistent browser fingerprint');
-	console.log('  ✓ No automation indicators');
-	console.log('  ✓ WebGL and Canvas should work normally');
-	console.log('');
-	console.log('Rebrowser Bot Detector:');
-	console.log('  ✓ Zero or minimal detections');
-	console.log('  ✓ No function exposure leaks');
-	console.log('  ✓ Proper context isolation');
-	console.log('  ✓ All tests should be green/passing');
-	console.log('');
-	console.log('Check screenshots in ./screenshots/ directory for detailed results');
-	console.log('='.repeat(60));
-}
 
 async function runTests(testIndices = null) {
 	console.log('='.repeat(60));
-	console.log('MPCBot Anti-Detection Test Suite');
+	console.log('MPCBot Anti-Detection Test');
 	console.log('='.repeat(60));
-	console.log('');
-
-	// Create screenshots directory if it doesn't exist
-	const screenshotsDir = path.join(__dirname, 'screenshots');
-	if (!fs.existsSync(screenshotsDir)) {
-		fs.mkdirSync(screenshotsDir, { recursive: true });
-		console.log('✓ Created screenshots directory');
-		console.log('');
-	}
 
 	// Load proxies
 	proxyManager.loadProxies();
@@ -129,11 +93,10 @@ async function runTests(testIndices = null) {
 	const useProxy = proxyCount > 0;
 
 	if (useProxy) {
-		console.log(`✓ Found ${proxyCount} proxy/proxies - will use for testing`);
+		console.log(`Using proxy: Yes (${proxyCount} available)`);
 	} else {
-		console.log('⚠️  No proxies configured - testing without proxy');
+		console.log('Using proxy: No');
 	}
-	console.log('');
 
 	// Determine which tests to run
 	let sitesToTest = TEST_SITES;
@@ -147,35 +110,20 @@ async function runTests(testIndices = null) {
 			displayMenu();
 			process.exit(1);
 		}
-
-		console.log('Running selected tests:');
-		sitesToTest.forEach((site, idx) => {
-			console.log(`  ${idx + 1}. ${site.name}`);
-		});
-		console.log('');
-	} else {
-		console.log(`Running all ${TEST_SITES.length} tests...`);
-		console.log('');
 	}
 
 	// Test each site
-	for (let i = 0; i < sitesToTest.length; i++) {
-		const site = sitesToTest[i];
+	for (const site of sitesToTest) {
 		await testSite(site, useProxy);
-
-		// Delay between tests
-		if (i < sitesToTest.length - 1) {
-			console.log('');
-			console.log('Waiting 5 seconds before next test...');
-			await new Promise((resolve) => setTimeout(resolve, 5000));
-		}
 	}
-
-	console.log('');
-	console.log('='.repeat(60));
-	console.log(`${sitesToTest.length} test${sitesToTest.length > 1 ? 's' : ''} completed!`);
-	printTestGuide();
 }
+
+// Handle Ctrl+C gracefully
+process.on('SIGINT', () => {
+	console.log('');
+	console.log('Test interrupted by user');
+	process.exit(0);
+});
 
 // Parse command line arguments
 const args = process.argv.slice(2);

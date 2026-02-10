@@ -145,7 +145,6 @@ class ProxyManager {
     // Move to next proxy (round-robin)
     this.currentIndex = (this.currentIndex + 1) % this.proxies.length;
 
-    logger.debug(`Selected proxy: ${this.maskProxyUrl(proxy.server)}`);
     return proxy;
   }
 
@@ -165,7 +164,6 @@ class ProxyManager {
     const randomIndex = Math.floor(Math.random() * this.proxies.length);
     const proxy = this.proxies[randomIndex];
 
-    logger.debug(`Selected random proxy: ${this.maskProxyUrl(proxy.server)}`);
     return proxy;
   }
 
@@ -205,7 +203,6 @@ class ProxyManager {
    */
   reset() {
     this.currentIndex = 0;
-    logger.debug('Proxy rotation reset');
   }
 
   /**
