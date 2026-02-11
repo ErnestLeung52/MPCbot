@@ -3,13 +3,129 @@ const logger = require('../utils/logger');
 
 class HumanBehavior {
 	/**
-	 * Generate random delay within range
+	 * Generate random number using Gaussian (normal) distribution
+	 * More realistic than uniform distribution - values cluster around the middle
+	 * @param {number} min - Minimum value
+	 * @param {number} max - Maximum value
+	 * @returns {number} - Random value with Gaussian distribution
+	 * @private
+	 */
+	getGaussianRandom(min, max) {
+		// Box-Muller transform for normal distribution
+		const u1 = Math.random();
+		const u2 = Math.random();
+		const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+		
+		// Convert to range [min, max] with mean at center
+		const mean = (min + max) / 2;
+		const stdDev = (max - min) / 6; // 99.7% of values within range
+		
+		const value = mean + z0 * stdDev;
+		return Math.max(min, Math.min(max, value));
+	}
+
+	/**
+	 * Calculate a point on a cubic Bezier curve
+	 * @param {number} t - Progress along curve (0 to 1)
+	 * @param {Object} p0 - Start point {x, y}
+	 * @param {Object} p1 - Control point 1 {x, y}
+	 * @param {Object} p2 - Control point 2 {x, y}
+	 * @param {Object} p3 - End point {x, y}
+	 * @returns {Object} - Point on curve {x, y}
+	 * @private
+	 */
+	bezierCurve(t, p0, p1, p2, p3) {
+		const t2 = t * t;
+		const t3 = t2 * t;
+		const mt = 1 - t;
+		const mt2 = mt * mt;
+		const mt3 = mt2 * mt;
+
+		return {
+			x: p0.x * mt3 + 3 * p1.x * mt2 * t + 3 * p2.x * mt * t2 + p3.x * t3,
+			y: p0.y * mt3 + 3 * p1.y * mt2 * t + 3 * p2.y * mt * t2 + p3.y * t3
+		};
+	}
+
+	/**
+	 * Generate a realistic mouse path using Bezier curves with overshoot
+	 * @param {Object} start - Start position {x, y}
+	 * @param {Object} end - End position {x, y}
+	 * @param {number} spreadSize - Control point spread (default: 0.5)
+	 * @returns {Array<Object>} - Array of points {x, y}
+	 * @private
+	 */
+	generateMousePath(start, end, spreadSize = 0.5) {
+		const points = [];
+		
+		// Add slight overshoot for realism (humans don't move perfectly to target)
+		const overshoot = Math.random() < 0.3; // 30% chance of overshoot
+		let finalEnd = end;
+		
+		if (overshoot) {
+			const overshootDistance = this.getRandomDelay(5, 15);
+			const angle = Math.atan2(end.y - start.y, end.x - start.x);
+			finalEnd = {
+				x: end.x + Math.cos(angle) * overshootDistance,
+				y: end.y + Math.sin(angle) * overshootDistance
+			};
+		}
+		
+		// Generate control points for Bezier curve
+		const distX = finalEnd.x - start.x;
+		const distY = finalEnd.y - start.y;
+		
+		const cp1 = {
+			x: start.x + distX * (0.25 + Math.random() * 0.25) + (Math.random() - 0.5) * distY * spreadSize,
+			y: start.y + distY * (0.25 + Math.random() * 0.25) + (Math.random() - 0.5) * distX * spreadSize
+		};
+		
+		const cp2 = {
+			x: start.x + distX * (0.75 + Math.random() * 0.25) + (Math.random() - 0.5) * distY * spreadSize,
+			y: start.y + distY * (0.75 + Math.random() * 0.25) + (Math.random() - 0.5) * distX * spreadSize
+		};
+		
+		// Generate points along the curve
+		const distance = Math.sqrt(distX * distX + distY * distY);
+		const steps = Math.max(10, Math.floor(distance / 10)); // More steps for longer distances
+		
+		for (let i = 0; i <= steps; i++) {
+			const t = i / steps;
+			const point = this.bezierCurve(t, start, cp1, cp2, finalEnd);
+			points.push({
+				x: Math.round(point.x),
+				y: Math.round(point.y)
+			});
+		}
+		
+		// If we overshot, add correction back to actual target
+		if (overshoot) {
+			const correctionSteps = this.getRandomDelay(3, 6);
+			for (let i = 1; i <= correctionSteps; i++) {
+				const t = i / correctionSteps;
+				points.push({
+					x: Math.round(finalEnd.x + (end.x - finalEnd.x) * t),
+					y: Math.round(finalEnd.y + (end.y - finalEnd.y) * t)
+				});
+			}
+		}
+		
+		return points;
+	}
+	/**
+	 * Generate random delay within range using Gaussian distribution
 	 * @param {number} min - Minimum delay in milliseconds
 	 * @param {number} max - Maximum delay in milliseconds
+	 * @param {boolean} useGaussian - Use Gaussian distribution (default: true)
 	 * @returns {number} - Random delay
 	 * @private
 	 */
-	getRandomDelay(min, max) {
+	getRandomDelay(min, max, useGaussian = true) {
+		if (useGaussian && max - min > 100) {
+			// Use Gaussian for larger ranges to create more natural clustering
+			return Math.floor(this.getGaussianRandom(min, max));
+		}
+		// Use uniform for small ranges
 		return Math.floor(Math.random() * (max - min + 1)) + min;
 	}
 
@@ -99,7 +215,7 @@ class HumanBehavior {
 	}
 
 	/**
-	 * Click element in a human-like manner
+	 * Click element in a human-like manner with Bezier curve mouse movement
 	 * @param {Page} page - Playwright page instance
 	 * @param {string} selector - CSS selector for the element
 	 * @param {Object} options - Additional options
@@ -118,18 +234,49 @@ class HumanBehavior {
 			// Small delay after scrolling
 			await this.randomDelay(100, 200);
 
-			// Get element bounding box for mouse movement
+			// Get current mouse position
+			const currentPos = await page.evaluate(() => {
+				return { x: window.mouseX || 0, y: window.mouseY || 0 };
+			});
+
+			// Get element bounding box
 			const element = await page.locator(selector);
 			const box = await element.boundingBox();
 
 			if (box) {
-				// Move mouse to element with slight randomness
-				const x = box.x + box.width / 2 + this.getRandomDelay(-10, 10);
-				const y = box.y + box.height / 2 + this.getRandomDelay(-10, 10);
+				// Calculate target position with slight randomness (not dead center)
+				const targetX = box.x + box.width / 2 + this.getRandomDelay(-10, 10, false);
+				const targetY = box.y + box.height / 2 + this.getRandomDelay(-10, 10, false);
+				
+				// Generate realistic mouse path using Bezier curves
+				const path = this.generateMousePath(
+					currentPos,
+					{ x: targetX, y: targetY },
+					0.3 + Math.random() * 0.4 // Randomize curve spread
+				);
 
-				await page.mouse.move(x, y, { steps: this.getRandomDelay(5, 15) });
+				// Move along the path with variable speed
+				for (let i = 0; i < path.length; i++) {
+					const point = path[i];
+					await page.mouse.move(point.x, point.y);
+					
+					// Variable delay between movements (faster in middle, slower at start/end)
+					const progress = i / path.length;
+					const speedMultiplier = Math.sin(progress * Math.PI); // Ease in/out
+					const delay = Math.max(1, Math.floor(5 * (1 - speedMultiplier * 0.7)));
+					
+					if (delay > 1) {
+						await new Promise(resolve => setTimeout(resolve, delay));
+					}
+				}
 
-				// Brief hover
+				// Update mouse position in page context
+				await page.evaluate((pos) => {
+					window.mouseX = pos.x;
+					window.mouseY = pos.y;
+				}, { x: targetX, y: targetY });
+
+				// Brief hover before click
 				await this.randomDelay(50, 150);
 			}
 
@@ -193,7 +340,7 @@ class HumanBehavior {
 	}
 
 	/**
-	 * Random mouse movement to simulate human activity
+	 * Random mouse movement to simulate human activity with Bezier curves
 	 * @param {Page} page - Playwright page instance
 	 * @returns {Promise<void>}
 	 */
@@ -202,12 +349,79 @@ class HumanBehavior {
 			const viewport = page.viewportSize();
 			if (!viewport) return;
 
-			const x = this.getRandomDelay(0, viewport.width);
-			const y = this.getRandomDelay(0, viewport.height);
+			// Get current mouse position
+			const currentPos = await page.evaluate(() => {
+				return { x: window.mouseX || viewport.width / 2, y: window.mouseY || viewport.height / 2 };
+			});
 
-			await page.mouse.move(x, y, { steps: this.getRandomDelay(10, 30) });
+			// Random target within viewport
+			const targetX = this.getRandomDelay(50, viewport.width - 50);
+			const targetY = this.getRandomDelay(50, viewport.height - 50);
+
+			// Generate realistic mouse path
+			const path = this.generateMousePath(
+				currentPos,
+				{ x: targetX, y: targetY },
+				0.5 + Math.random() * 0.3
+			);
+
+			// Move along the path
+			for (const point of path) {
+				await page.mouse.move(point.x, point.y);
+				await new Promise(resolve => setTimeout(resolve, this.getRandomDelay(5, 15, false)));
+			}
+
+			// Update mouse position
+			await page.evaluate((pos) => {
+				window.mouseX = pos.x;
+				window.mouseY = pos.y;
+			}, { x: targetX, y: targetY });
 		} catch (error) {
 			// Don't throw - this is not critical
+		}
+	}
+
+	/**
+	 * Click at specific coordinates with Bezier curve movement
+	 * @param {Page} page - Playwright page instance
+	 * @param {number} x - X coordinate
+	 * @param {number} y - Y coordinate
+	 * @returns {Promise<void>}
+	 */
+	async clickAtCoordinates(page, x, y) {
+		try {
+			// Get current mouse position
+			const currentPos = await page.evaluate(() => {
+				return { x: window.mouseX || 0, y: window.mouseY || 0 };
+			});
+
+			// Generate realistic mouse path
+			const path = this.generateMousePath(
+				currentPos,
+				{ x, y },
+				0.3 + Math.random() * 0.3
+			);
+
+			// Move along the path
+			for (const point of path) {
+				await page.mouse.move(point.x, point.y);
+				await new Promise(resolve => setTimeout(resolve, this.getRandomDelay(3, 10, false)));
+			}
+
+			// Update mouse position
+			await page.evaluate((pos) => {
+				window.mouseX = pos.x;
+				window.mouseY = pos.y;
+			}, { x, y });
+
+			// Brief delay before click
+			await this.randomDelay(50, 100);
+			
+			// Click
+			await page.mouse.click(x, y);
+		} catch (error) {
+			logger.error(`Failed to click at coordinates (${x}, ${y}): ${error.message}`);
+			throw error;
 		}
 	}
 

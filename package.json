@@ -12,6 +12,7 @@
 		"test-detection:list": "node test-detection.js --list",
 		"test-detection:help": "node test-detection.js --help",
 		"test-proxy": "node test-proxy.js",
+		"test-mouse": "node test-ghost-cursor.js",
 		"install-chrome": "npx patchright install chrome",
 		"setup": "npx patchright install chrome && npm run validate"
 	},
@@ -25,9 +26,9 @@
 	"license": "ISC",
 	"type": "commonjs",
 	"dependencies": {
-		"patchright": "^1.49.1",
-		"googleapis": "^128.0.0",
 		"dotenv": "^16.4.5",
+		"googleapis": "^128.0.0",
+		"patchright": "^1.49.1",
 		"winston": "^3.11.0"
 	}
 }

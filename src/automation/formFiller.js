@@ -358,7 +358,7 @@ class FormFiller {
       
       // Alternative: Click somewhere neutral to dismiss dropdown (if Escape doesn't work)
       // This simulates clicking outside the dropdown area
-      await page.mouse.click(100, 100); // Click at top-left area (typically empty)
+      await humanBehavior.clickAtCoordinates(page, 100, 100); // Click at top-left area (typically empty)
       await humanBehavior.randomDelay(100, 200);
 
       // Fill Apartment (optional, no typos)
