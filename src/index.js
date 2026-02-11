@@ -13,6 +13,7 @@ const logger = require('./utils/logger');
 const errorHandler = require('./utils/errorHandler');
 const googleSheets = require('./services/googleSheets');
 const proxyManager = require('./services/proxyManager');
+const ProxyScheduler = require('./services/proxyScheduler');
 const browserService = require('./services/browser');
 const formFiller = require('./automation/formFiller');
 
@@ -22,6 +23,7 @@ class MPCBot {
 		this.completedTasks = 0;
 		this.failedTasks = 0;
 		this.startTime = null;
+		this.proxyScheduler = null;
 	}
 
 	/**
@@ -40,6 +42,32 @@ class MPCBot {
 			// Load proxies
 			proxyManager.loadProxies();
 
+			// Initialize proxy scheduler if we have proxies
+			const proxyCount = proxyManager.getCount();
+			if (proxyCount === 0) {
+				logger.error('No proxies loaded. Cannot run continuous workflow.');
+				logger.error('Please add proxies to config/proxies.json');
+				process.exit(1);
+			}
+
+			// Get all proxies for the scheduler
+			const proxies = [];
+			for (let i = 0; i < proxyCount; i++) {
+				proxies.push(proxyManager.getByIndex(i));
+			}
+
+			// Create scheduler
+			const usesPerProxy = config.proxy.usesPerProxy;
+			this.proxyScheduler = new ProxyScheduler(proxies, usesPerProxy);
+
+			// Log proxy configuration
+			logger.info('');
+			logger.info('Proxy Configuration:');
+			logger.info(`  Total Proxies: ${proxyCount}`);
+			logger.info(`  Uses Per Proxy: ${usesPerProxy}`);
+			logger.info(`  Max Tasks: ${this.proxyScheduler.getTotalTasks()}`);
+
+			logger.info('');
 			logger.info('Initialization complete');
 			logger.info('='.repeat(60));
 		} catch (error) {
@@ -212,8 +240,17 @@ class MPCBot {
 				logger.warn(`Could not update status to In Progress: ${statusError.message}`);
 			}
 
-			// Get next proxy
-			const proxy = proxyManager.getNext();
+			// Get next proxy from scheduler
+			const proxyAllocation = this.proxyScheduler.getNext();
+			
+			if (!proxyAllocation) {
+				throw new Error('No proxy available - all proxies exhausted');
+			}
+
+			const { proxy, proxyIndex, currentUsage, remaining } = proxyAllocation;
+
+			// Log proxy usage info
+			logger.info(`Using Proxy #${proxyIndex + 1} (Usage: ${currentUsage}/${config.proxy.usesPerProxy}, Remaining: ${remaining})`);
 
 			// Launch browser with proxy
 			browser = await browserService.launch(proxy);
@@ -360,6 +397,16 @@ class MPCBot {
 		try {
 			this.startTime = Date.now();
 
+			// Get maximum tasks we can run based on proxy availability
+			const maxTasks = this.proxyScheduler.getTotalTasks();
+			logger.info('');
+			logger.info('='.repeat(60));
+			logger.info('CONTINUOUS WORKFLOW CONFIGURATION');
+			logger.info('='.repeat(60));
+			logger.info(this.proxyScheduler.getUsageSummary());
+			logger.info('='.repeat(60));
+			logger.info('');
+
 			// Fetch all rows from sheet
 			const rows = await googleSheets.fetchRows();
 			const headers = await googleSheets.getHeaders();
@@ -385,13 +432,41 @@ class MPCBot {
 				return;
 			}
 
-			this.totalTasks = validTasks.length;
-			logger.info(`Starting processing of ${this.totalTasks} valid task(s)...`);
+			// Limit tasks to what we can handle with available proxies
+			const tasksToProcess = validTasks.slice(0, maxTasks);
+			const skippedTasks = validTasks.length - tasksToProcess.length;
+
+			this.totalTasks = tasksToProcess.length;
+
+			if (skippedTasks > 0) {
+				logger.warn('');
+				logger.warn('='.repeat(60));
+				logger.warn('TASK LIMIT REACHED');
+				logger.warn('='.repeat(60));
+				logger.warn(`  Valid tasks found: ${validTasks.length}`);
+				logger.warn(`  Tasks to process: ${this.totalTasks}`);
+				logger.warn(`  Tasks skipped: ${skippedTasks}`);
+				logger.warn('');
+				logger.warn(`Reason: Limited by proxy capacity (${maxTasks} max tasks)`);
+				logger.warn('To process more tasks, either:');
+				logger.warn('  1. Add more proxies to config/proxies.json');
+				logger.warn('  2. Increase PROXY_USES_PER_CYCLE in .env');
+				logger.warn('='.repeat(60));
+				logger.warn('');
+			}
+
+			logger.info(`Starting processing of ${this.totalTasks} task(s)...`);
 			logger.info('');
 
 			// Process each valid task
-			for (let taskNum = 0; taskNum < validTasks.length; taskNum++) {
-				const task = validTasks[taskNum];
+			for (let taskNum = 0; taskNum < tasksToProcess.length; taskNum++) {
+				const task = tasksToProcess[taskNum];
+
+				// Check if we still have proxies available
+				if (!this.proxyScheduler.hasMore()) {
+					logger.warn('All proxies exhausted. Stopping workflow.');
+					break;
+				}
 
 				logger.info('='.repeat(60));
 				logger.info(`TASK ${taskNum + 1}/${this.totalTasks}`);
@@ -445,6 +520,8 @@ class MPCBot {
 		logger.info(`Completed: ${this.completedTasks}`);
 		logger.info(`Failed: ${this.failedTasks}`);
 		logger.info(`Duration: ${minutes}m ${seconds}s`);
+		logger.info('');
+		logger.info(this.proxyScheduler.getUsageSummary());
 		logger.info('='.repeat(60));
 	}
 }

@@ -7,7 +7,8 @@ A Node.js automation app using Patchright (undetectable Playwright fork) to perf
 - **Undetectable Browser Automation**: Uses Patchright with stealth patches to avoid bot detection
 - **Human-like Behavior**: Simulates realistic typing, mouse movements, and delays
 - **Google Sheets Integration**: Pull input data and update results automatically
-- **Proxy Rotation**: Each task uses a different proxy from your list
+- **Continuous Workflow**: Automatically process multiple tasks based on proxy availability
+- **Smart Proxy Rotation**: Round-robin allocation ensuring even proxy usage before reuse
 - **Comprehensive Logging**: Winston-based logging with error tracking
 - **Error Handling**: Configurable stop-on-error with screenshot capture
 
@@ -50,6 +51,11 @@ MIN_DELAY=500
 MAX_DELAY=2000
 TYPING_SPEED_MIN=50
 TYPING_SPEED_MAX=150
+
+# Proxy Settings
+# Number of times each proxy can be used before exhaustion
+# Example: 10 proxies × 3 uses = 30 total tasks
+PROXY_USES_PER_CYCLE=3
 
 # Error Handling
 STOP_ON_ERROR=true
@@ -231,11 +237,13 @@ node test-task-filtering.js
 ## Workflow
 
 1. **Initialize**: Connect to Google Sheets and load proxies
-2. **Fetch Data**: Read all rows from the sheet
-3. **Filter Tasks**: Identify valid tasks based on RedeemCode and Status
-4. **For Each Valid Task**:
+2. **Calculate Capacity**: Determine max tasks based on proxy count × uses per proxy
+3. **Fetch Data**: Read all rows from the sheet
+4. **Filter Tasks**: Identify valid tasks based on RedeemCode and Status
+5. **Limit Tasks**: Process only up to proxy capacity (remaining tasks saved for next run)
+6. **For Each Valid Task**:
    - Mark Status as "In Progress"
-   - Select next proxy from rotation
+   - Select next proxy using round-robin allocation
    - Launch Patchright browser with proxy
    - Navigate to target website
    - Sanitize and prepare data
@@ -245,7 +253,39 @@ node test-task-filtering.js
    - Update Google Sheet with results
    - Mark Status as "Success" or "Failed"
    - Close browser
-5. **Complete**: Log summary statistics
+7. **Complete**: Log summary statistics and proxy usage
+
+### Continuous Workflow Details
+
+The bot implements a **smart continuous workflow** that automatically manages task processing based on proxy availability:
+
+**How it Works:**
+- Total tasks = Number of proxies × Uses per proxy
+- Example: 10 proxies × 3 uses = 30 tasks maximum
+- Proxies are used in **round-robin** fashion (not consecutively)
+
+**Round-Robin Pattern:**
+```
+Task 1 → Proxy #1 (1st use)
+Task 2 → Proxy #2 (1st use)
+Task 3 → Proxy #3 (1st use)
+...
+Task 10 → Proxy #10 (1st use)
+Task 11 → Proxy #1 (2nd use)
+Task 12 → Proxy #2 (2nd use)
+...
+```
+
+**Benefits:**
+- **Even distribution**: Each proxy gets used before any proxy is reused
+- **Better IP rotation**: Consecutive tasks use different IPs
+- **Automatic limiting**: Won't process more tasks than proxy capacity allows
+- **Configurable**: Adjust `PROXY_USES_PER_CYCLE` to increase/decrease capacity
+
+**Configuration:**
+- Set `PROXY_USES_PER_CYCLE` in `.env` to control how many times each proxy can be used
+- Default is 3 (each proxy used 3 times)
+- Higher values = more tasks per run, but higher risk of proxy burnout
 
 ## Human-like Behavior Features
 
@@ -341,7 +381,8 @@ MPCbot/
 │   ├── services/
 │   │   ├── googleSheets.js    # Google Sheets integration
 │   │   ├── browser.js         # Patchright browser manager
-│   │   └── proxyManager.js    # Proxy rotation logic
+│   │   ├── proxyManager.js    # Proxy loading and management
+│   │   └── proxyScheduler.js  # Round-robin proxy allocation
 │   ├── automation/
 │   │   ├── formFiller.js      # Form filling automation
 │   │   ├── iframeExtractor.js # Iframe data extraction

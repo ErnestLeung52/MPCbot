@@ -34,6 +34,13 @@ const config = {
     addressVerification: 'entered' // 'entered' or 'suggested' - which address to use if verification modal appears
   },
 
+  // Proxy Settings
+  proxy: {
+    // Number of times each proxy can be used before exhaustion
+    // Example: 10 proxies × 3 uses = 30 total tasks
+    usesPerProxy: parseInt(process.env.PROXY_USES_PER_CYCLE) || 3
+  },
+
   // Error Handling
   errorHandling: {
     stopOnError: process.env.STOP_ON_ERROR === 'true',
