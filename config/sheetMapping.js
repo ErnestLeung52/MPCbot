@@ -35,7 +35,7 @@ const COLUMN_MAPPINGS = {
 	// Output columns (data to write back to sheet)
 	status: 'Status', // Column to store processing status (In Progress, Success, Failed)
 	amount: 'Amount', // Column to store card amount
-	cardNumber: 'CardNumber', // Column to store card number
+	cardNumber: 'Card Number', // Column to store card number
 	exp: 'Exp', // Column to store card expiration date
 	cvv: 'CVV', // Column to store card CVV
 	timestamp: 'Timestamp', // Column to store processing timestamp

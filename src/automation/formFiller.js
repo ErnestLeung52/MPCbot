@@ -15,10 +15,13 @@ class FormFiller {
       const fullUrl = baseUrl + redeemCode;
       
       await page.goto(fullUrl, {
-        waitUntil: 'networkidle',
+        waitUntil: 'load',
         timeout: 30000
       });
 
+      // Wait for the form to be ready (country dropdown indicates form is loaded)
+      await page.waitForSelector('#addCountry', { timeout: 10000 });
+      
       await humanBehavior.simulateReading(page, 2000);
       return await this.validateRedeemPage(page);
     } catch (error) {
@@ -80,14 +83,15 @@ class FormFiller {
    * @param {Page} page - Playwright page instance
    * @param {string} selector - CSS selector for the field
    * @param {string} value - Value to enter
+   * @param {Object} options - Typing options (e.g., enableTypos)
    * @returns {Promise<void>}
    */
-  async fillTextField(page, selector, value) {
+  async fillTextField(page, selector, value, options = {}) {
     try {
       await page.locator(selector).scrollIntoViewIfNeeded();
-      await humanBehavior.randomDelay(300, 700);
-      await humanBehavior.humanType(page, selector, value);
-      await humanBehavior.randomDelay(200, 500);
+      await humanBehavior.randomDelay(100, 200);
+      await humanBehavior.humanType(page, selector, value, options);
+      await humanBehavior.randomDelay(100, 200);
     } catch (error) {
       logger.error(`Failed to fill text field ${selector}: ${error.message}`);
       throw error;
@@ -104,7 +108,7 @@ class FormFiller {
   async selectDropdown(page, selector, value) {
     try {
       await humanBehavior.humanSelect(page, selector, value);
-      await humanBehavior.randomDelay(200, 500);
+      await humanBehavior.randomDelay(100, 200);
     } catch (error) {
       logger.error(`Failed to select dropdown ${selector}: ${error.message}`);
       throw error;
@@ -154,18 +158,18 @@ class FormFiller {
   async typeCharacterByCharacter(page, selector, value) {
     try {
       await page.locator(selector).scrollIntoViewIfNeeded();
-      await humanBehavior.randomDelay(300, 700);
-      await page.locator(selector).click();
-      await humanBehavior.randomDelay(200, 400);
-      await page.locator(selector).fill('');
       await humanBehavior.randomDelay(100, 200);
+      await page.locator(selector).click();
+      await humanBehavior.randomDelay(100, 200);
+      await page.locator(selector).fill('');
+      await humanBehavior.randomDelay(50, 100);
 
       for (const char of value) {
         const charDelay = humanBehavior.getRandomDelay(50, 150);
         await page.locator(selector).type(char, { delay: charDelay });
       }
 
-      await humanBehavior.randomDelay(200, 500);
+      await humanBehavior.randomDelay(100, 200);
     } catch (error) {
       logger.error(`Failed to type character by character: ${error.message}`);
       throw error;
@@ -182,7 +186,7 @@ class FormFiller {
   async selectDropdownByText(page, selector, text) {
     try {
       await page.locator(selector).scrollIntoViewIfNeeded();
-      await humanBehavior.randomDelay(300, 700);
+      await humanBehavior.randomDelay(100, 200);
 
       await page.locator(selector).evaluate((select, textToFind) => {
         const options = Array.from(select.options);
@@ -193,7 +197,7 @@ class FormFiller {
         }
       }, text);
 
-      await humanBehavior.randomDelay(200, 500);
+      await humanBehavior.randomDelay(100, 200);
     } catch (error) {
       logger.error(`Failed to select dropdown by text: ${error.message}`);
       throw error;
@@ -334,55 +338,101 @@ class FormFiller {
       await this.selectDropdownByText(page, '#addCountry', 'United States');
       await humanBehavior.randomDelay();
 
-      // Fill First Name
-      await this.fillTextField(page, '#addFirstName', formData.firstName);
+      // Fill First Name (only field with typo enabled for human-like behavior)
+      await this.fillTextField(page, '#addFirstName', formData.firstName, { enableTypos: true });
       await humanBehavior.randomDelay();
 
-      // Fill Last Name
-      await this.fillTextField(page, '#addLastName', formData.lastName);
+      // Fill Last Name (no typos to ensure data accuracy)
+      await this.fillTextField(page, '#addLastName', formData.lastName, { enableTypos: false });
       await humanBehavior.randomDelay();
 
-      // Fill Street Address
-      await this.fillTextField(page, '#addLine1', formData.streetAddress);
+      // Fill Street Address (no typos to ensure data accuracy)
+      await this.fillTextField(page, '#addLine1', formData.streetAddress, { enableTypos: false });
       await humanBehavior.randomDelay();
 
-      // Fill Apartment (optional)
+      // Dismiss any autocomplete dropdown that appears after typing address
+      logger.info('Dismissing address autocomplete dropdown...');
+      await humanBehavior.randomDelay(300, 500); // Wait for dropdown to appear
+      await page.keyboard.press('Escape'); // Press Escape to close dropdown
+      await humanBehavior.randomDelay(200, 300); // Wait for dropdown to close
+      
+      // Alternative: Click somewhere neutral to dismiss dropdown (if Escape doesn't work)
+      // This simulates clicking outside the dropdown area
+      await page.mouse.click(100, 100); // Click at top-left area (typically empty)
+      await humanBehavior.randomDelay(100, 200);
+
+      // Fill Apartment (optional, no typos)
       if (formData.apartment) {
-        await this.fillTextField(page, '#addLine2', formData.apartment);
+        await this.fillTextField(page, '#addLine2', formData.apartment, { enableTypos: false });
         await humanBehavior.randomDelay();
       }
 
-      // Fill City
-      await this.fillTextField(page, '#addCity', formData.city);
+      // Fill City (no typos to ensure data accuracy)
+      await this.fillTextField(page, '#addCity', formData.city, { enableTypos: false });
       await humanBehavior.randomDelay();
 
       // Select State
       await this.selectDropdown(page, '#addRegion', formData.state);
       await humanBehavior.randomDelay();
 
-      // Fill ZIP Code
-      await this.fillTextField(page, '#addZIPCode', formData.zipCode);
+      // Fill ZIP Code (no typos for numeric fields)
+      await this.fillTextField(page, '#addZIPCode', formData.zipCode, { enableTypos: false });
       await humanBehavior.randomDelay();
 
-      // Fill Phone Number
-      await this.fillTextField(page, '#addPhoneNumber', formData.phoneNumber);
+      // Fill Phone Number (no typos for numeric fields)
+      await this.fillTextField(page, '#addPhoneNumber', formData.phoneNumber, { enableTypos: false });
       await humanBehavior.randomDelay();
 
-      // Fill Email Address
-      await this.fillTextField(page, '#emailAddressBilling', formData.emailAddress);
+      // Fill Email Address (no typos to ensure data accuracy)
+      await this.fillTextField(page, '#emailAddressBilling', formData.emailAddress, { enableTypos: false });
       await humanBehavior.randomDelay();
 
       // Fill Confirm Email Address (remove readonly, type character by character)
       await this.removeReadonly(page, '#confirmemailAddressBilling');
       await this.typeCharacterByCharacter(page, '#confirmemailAddressBilling', formData.emailAddress);
       
-      // Check E-Sign Disclosure checkbox
-      await this.setCheckbox(page, 'input[formcontrolname="termsAcceptedEsign"]', true);
-      await humanBehavior.randomDelay();
-
-      // Check Cardholder Agreement checkbox
-      await this.setCheckbox(page, 'input[formcontrolname="termsAcceptedCard"]', true);
-      await humanBehavior.randomDelay();
+      // Wait for checkboxes to be present in DOM (they might load after email fields)
+      await page.waitForSelector('input[formcontrolname="termsAcceptedEsign"]', { state: 'attached', timeout: 15000 });
+      
+      // Smooth scroll to checkbox area (not all the way to bottom)
+      await page.locator('input[formcontrolname="termsAcceptedEsign"]').scrollIntoViewIfNeeded();
+      await humanBehavior.randomDelay(300, 500);
+      
+      logger.info('Checkboxes found in DOM, proceeding to check them...');
+      
+      // E-Sign Disclosure checkbox - use JavaScript directly (most reliable)
+      logger.info('Checking E-Sign Disclosure checkbox...');
+      await humanBehavior.randomDelay(200, 300);
+      
+      await page.evaluate(() => {
+        const checkbox = document.querySelector('input[formcontrolname="termsAcceptedEsign"]');
+        if (checkbox) {
+          checkbox.checked = true;
+          checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+          checkbox.dispatchEvent(new Event('input', { bubbles: true }));
+          checkbox.dispatchEvent(new Event('click', { bubbles: true }));
+        }
+      });
+      logger.info('E-Sign checkbox checked');
+      
+      await humanBehavior.randomDelay(100, 200);
+      
+      // Cardholder Agreement checkbox - use JavaScript directly (most reliable)
+      logger.info('Checking Cardholder Agreement checkbox...');
+      await humanBehavior.randomDelay(200, 300);
+      
+      await page.evaluate(() => {
+        const checkbox = document.querySelector('input[formcontrolname="termsAcceptedCard"]');
+        if (checkbox) {
+          checkbox.checked = true;
+          checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+          checkbox.dispatchEvent(new Event('input', { bubbles: true }));
+          checkbox.dispatchEvent(new Event('click', { bubbles: true }));
+        }
+      });
+      logger.info('Cardholder Agreement checkbox checked');
+      
+      await humanBehavior.randomDelay(200, 300);
 
       // Click Activate button
       await humanBehavior.submitDelay();
@@ -390,35 +440,49 @@ class FormFiller {
       await humanBehavior.randomDelay(500, 1000);
       await humanBehavior.humanClick(page, 'button[data-trustmark-btn]');
       
-      // Wait for processing (2-5 seconds as mentioned)
-      logger.info('Waiting for activation to process...');
-      await humanBehavior.randomDelay(2000, 3000);
-
-      // Check if address verification modal appears
-      const needsVerification = await this.isAddressVerificationModalVisible(page);
+      // Wait for processing and continuously check for modals
+      logger.info('Waiting for activation to process and checking for modals...');
       
-      if (needsVerification) {
-        const verificationChoice = formData.addressVerificationChoice || 'entered';
-        await this.handleAddressVerification(page, verificationChoice);
+      const maxWaitTime = 20000; // Maximum 20 seconds
+      const checkInterval = 1000; // Check every 1 second
+      const startTime = Date.now();
+      let needsVerification = false;
+      let isCardActivated = false;
+      
+      // Keep checking for modals until one appears or timeout
+      while (Date.now() - startTime < maxWaitTime) {
+        // Check for address verification modal
+        needsVerification = await this.isAddressVerificationModalVisible(page);
+        if (needsVerification) {
+          logger.info('Address verification modal detected!');
+          const verificationChoice = formData.addressVerificationChoice || 'entered';
+          await this.handleAddressVerification(page, verificationChoice);
+          
+          // After handling verification, continue checking for success modal
+          await humanBehavior.randomDelay(2000, 3000);
+          continue;
+        }
         
-        // Wait for modal to close and card activation to complete
-        await humanBehavior.randomDelay(2000, 3000);
-      } else {
-        logger.info('No address verification needed');
+        // Check for card activation success modal
+        isCardActivated = await this.isCardActivatedModalVisible(page);
+        if (isCardActivated) {
+          logger.info('Card activation success modal detected!');
+          // Extract card data from the success modal
+          const cardData = await this.extractCardData(page);
+          logger.info('Registration form completed and card activated successfully');
+          return cardData;
+        }
+        
+        // Wait before next check
+        await page.waitForTimeout(checkInterval);
+        logger.info(`Still waiting for modal... (${Math.floor((Date.now() - startTime) / 1000)}s elapsed)`);
       }
-
-      // Check if card activation success modal appears
-      const isCardActivated = await this.isCardActivatedModalVisible(page);
       
-      if (isCardActivated) {
-        // Extract card data from the success modal
-        const cardData = await this.extractCardData(page);
-        logger.info('Registration form completed and card activated successfully');
-        return cardData;
-      } else {
-        logger.warn('Card activation modal not detected');
-        return null;
-      }
+      // If we get here, no modal appeared within timeout
+      logger.warn(`No modal detected after ${maxWaitTime / 1000} seconds`);
+      logger.warn('Taking screenshot for debugging...');
+      
+      return null;
     } catch (error) {
       logger.error(`Failed to fill registration form: ${error.message}`);
       throw error;

@@ -20,15 +20,16 @@ const config = {
     // Patchright with real Chrome (channel: 'chrome') handles all stealth automatically
     // Reference: https://roundproxies.com/blog/patchright/
     headless: process.env.HEADLESS === 'true',
+    keepOpen: process.env.KEEP_BROWSER_OPEN === 'true', // Keep browser open for testing/debugging
   },
 
   // Automation Settings
   automation: {
-    minDelay: parseInt(process.env.MIN_DELAY) || 500,
-    maxDelay: parseInt(process.env.MAX_DELAY) || 2000,
+    minDelay: parseInt(process.env.MIN_DELAY) || 200,
+    maxDelay: parseInt(process.env.MAX_DELAY) || 500,
     typingSpeedMin: parseInt(process.env.TYPING_SPEED_MIN) || 50,
     typingSpeedMax: parseInt(process.env.TYPING_SPEED_MAX) || 150,
-    typoChance: 0.05, // 5% chance of typo
+    typoChance: 0.03, // 3% chance of typo (reduced to minimize errors)
     submitDelay: { min: 2000, max: 4000 }, // Longer delay before submit
     addressVerification: 'entered' // 'entered' or 'suggested' - which address to use if verification modal appears
   },

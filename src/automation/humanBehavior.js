@@ -37,6 +37,11 @@ class HumanBehavior {
 	 */
 	async humanType(page, selector, text, options = {}) {
 		try {
+			// Validate text parameter
+			if (!text || typeof text !== 'string') {
+				throw new Error(`Invalid text parameter: ${text}`);
+			}
+
 			// Wait for element to be visible
 			await page.waitForSelector(selector, { state: 'visible', timeout: 10000 });
 
@@ -44,29 +49,35 @@ class HumanBehavior {
 			await this.humanClick(page, selector);
 
 			// Small delay before typing
-			await this.randomDelay(200, 500);
+			await this.randomDelay(100, 200);
 
 			// Clear existing text if needed
 			if (options.clear !== false) {
 				await page.fill(selector, '');
 			}
 
+			// Check if typos are enabled (can be disabled per field or globally)
+			const enableTypos = options.enableTypos !== false && config.automation.typoChance > 0;
+
 			// Type character by character
 			for (let i = 0; i < text.length; i++) {
 				const char = text[i];
 
-				// Random chance of making a typo
-				if (Math.random() < config.automation.typoChance && i > 0) {
+				// Random chance of making a typo (only on letter characters, not numbers)
+				const isLetter = /[a-zA-Z]/.test(char);
+				if (enableTypos && isLetter && Math.random() < config.automation.typoChance && i > 0) {
 					// Type a random wrong character
 					const wrongChar = String.fromCharCode(97 + Math.floor(Math.random() * 26));
 					await page.type(selector, wrongChar, { delay: 0 });
 
-					// Short delay before correcting
-					await this.randomDelay(100, 300);
+					// Longer delay before correcting to ensure character is visible
+					await this.randomDelay(200, 400);
 
 					// Delete the wrong character
 					await page.press(selector, 'Backspace');
-					await this.randomDelay(50, 150);
+					
+					// IMPORTANT: Wait for deletion to complete before continuing
+					await this.randomDelay(200, 400);
 				}
 
 				// Type the correct character
@@ -96,14 +107,16 @@ class HumanBehavior {
 	 */
 	async humanClick(page, selector, options = {}) {
 		try {
+			const timeout = options.timeout || 15000; // Increased default timeout to 15 seconds
+			
 			// Wait for element to be visible
-			await page.waitForSelector(selector, { state: 'visible', timeout: 10000 });
+			await page.waitForSelector(selector, { state: 'visible', timeout });
 
 			// Scroll element into view
 			await page.locator(selector).scrollIntoViewIfNeeded();
 
 			// Small delay after scrolling
-			await this.randomDelay(200, 500);
+			await this.randomDelay(100, 200);
 
 			// Get element bounding box for mouse movement
 			const element = await page.locator(selector);
@@ -117,7 +130,7 @@ class HumanBehavior {
 				await page.mouse.move(x, y, { steps: this.getRandomDelay(5, 15) });
 
 				// Brief hover
-				await this.randomDelay(100, 300);
+				await this.randomDelay(50, 150);
 			}
 
 			// Click the element

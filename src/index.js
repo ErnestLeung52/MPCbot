@@ -228,7 +228,7 @@ class MPCBot {
 			}
 
 			// Step 1: Navigate with redeem code and validate
-			logger.info('Step 1: Navigating with redeem code...');
+			logger.info('Step 1: Navigating with redeem code: ' + redeemCode);
 			const validation = await formFiller.navigateWithRedeemCode(page, config.targetUrl, redeemCode);
 
 			// Step 2: Check if redeem code is valid
@@ -260,10 +260,18 @@ class MPCBot {
 				city: extractedData.city,
 				state: extractedData.state,
 				zipCode: extractedData.zipCode,
-				phoneNumber: extractedData.phoneNumber,
+				phoneNumber: extractedData.phone,
 				emailAddress: extractedData.email,
 				addressVerificationChoice: config.automation.addressVerification
 			};
+
+			// Validate required fields before filling
+			const requiredFields = ['firstName', 'lastName', 'streetAddress', 'city', 'state', 'zipCode', 'phoneNumber', 'emailAddress'];
+			const missingFields = requiredFields.filter(field => !formData[field]);
+
+			if (missingFields.length > 0) {
+				throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+			}
 
 			// Step 3: Fill form and extract card data
 			const cardData = await formFiller.fillRegistrationForm(page, formData);
@@ -290,8 +298,17 @@ class MPCBot {
 			const duration = Date.now() - startTime;
 			logger.logTaskComplete(taskNumber, totalRows, duration);
 
-			// Close browser
-			await browserService.close(browser);
+			// Close browser (unless keepOpen is enabled for testing)
+			if (!config.browser.keepOpen) {
+				await browserService.close(browser);
+			} else {
+				logger.info('✓ Task completed successfully!');
+				logger.info('Browser kept open for testing (KEEP_BROWSER_OPEN=true)');
+				logger.info('Press Ctrl+C to exit when done inspecting...');
+				
+				// Keep process alive indefinitely for debugging
+				await new Promise(() => {}); // Never resolves
+			}
 
 			this.completedTasks++;
 
@@ -315,15 +332,23 @@ class MPCBot {
 				logger.error(`Failed to update error status in sheet: ${updateError.message}`);
 			}
 
-			// Close browser if still open
-			if (browser) {
+			// Close browser if still open (unless keepOpen is enabled)
+			if (browser && !config.browser.keepOpen) {
 				await browserService.close(browser);
+			} else if (browser) {
+				logger.warn('Browser kept open for debugging (KEEP_BROWSER_OPEN=true)');
+				logger.warn('Press Ctrl+C to exit when done inspecting...');
+				
+				// Keep process alive indefinitely for debugging
+				await new Promise(() => {}); // Never resolves
 			}
 
 			this.failedTasks++;
 
 			// Re-throw error to stop execution (if configured)
-			throw error;
+			if (config.errorHandling.stopOnError) {
+				throw error;
+			}
 		}
 	}
 
