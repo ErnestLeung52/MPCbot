@@ -4,29 +4,6 @@ const humanBehavior = require('./humanBehavior');
 
 class FormFiller {
   /**
-   * Navigate to target page and wait for load
-   * @param {Page} page - Playwright page instance
-   * @param {string} url - URL to navigate to (optional, uses config if not provided)
-   * @returns {Promise<void>}
-   */
-  async navigateToPage(page, url = null) {
-    try {
-      const targetUrl = url || config.targetUrl;
-      
-      await page.goto(targetUrl, {
-        waitUntil: 'networkidle',
-        timeout: 30000
-      });
-
-      // Random delay to simulate user reading page
-      await humanBehavior.simulateReading(page, 2000);
-    } catch (error) {
-      logger.error(`Failed to navigate to page: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
    * Navigate with redeem code and validate if it's valid
    * @param {Page} page - Playwright page instance
    * @param {string} baseUrl - Base URL (e.g., 'https://www.myprepaidcenter.com/redeem?ecode=')
@@ -42,10 +19,7 @@ class FormFiller {
         timeout: 30000
       });
 
-      // Wait for page to fully load
       await humanBehavior.simulateReading(page, 2000);
-
-      // Check if redeem code is valid by looking for error indicators
       return await this.validateRedeemPage(page);
     } catch (error) {
       logger.error(`Failed to navigate with redeem code: ${error.message}`);
@@ -60,9 +34,6 @@ class FormFiller {
    */
   async validateRedeemPage(page) {
     try {
-      // Primary check: Look for the specific "Invalid code" error element
-      // This element appears when redeem code is incorrect:
-      // <small id="codeNotFoundError" class="text-danger">Invalid code. Please try again.</small>
       const errorElement = page.locator('#codeNotFoundError');
       const isErrorVisible = await errorElement.isVisible().catch(() => false);
 
@@ -74,14 +45,12 @@ class FormFiller {
         };
       }
 
-      // Additional check: Look for the error wrapper (in case the error is present but not visible yet)
       const errorWrapper = page.locator('#codeNotFoundErrorWrapper');
       const isWrapperPresent = await errorWrapper.count().then(count => count > 0).catch(() => false);
 
       if (isWrapperPresent) {
         const wrapperVisible = await errorWrapper.isVisible().catch(() => false);
         if (wrapperVisible) {
-          // Check if the wrapper contains the error text
           const wrapperText = await errorWrapper.textContent().catch(() => '');
           if (wrapperText.toLowerCase().includes('invalid code')) {
             return {
@@ -92,7 +61,6 @@ class FormFiller {
         }
       }
 
-      // Success: No error indicators found, redeem code is valid
       return {
         success: true,
         message: 'Form page loaded successfully'
@@ -116,14 +84,9 @@ class FormFiller {
    */
   async fillTextField(page, selector, value) {
     try {
-      // Scroll to element
       await page.locator(selector).scrollIntoViewIfNeeded();
       await humanBehavior.randomDelay(300, 700);
-
-      // Type with human-like behavior
       await humanBehavior.humanType(page, selector, value);
-
-      // Brief pause after typing
       await humanBehavior.randomDelay(200, 500);
     } catch (error) {
       logger.error(`Failed to fill text field ${selector}: ${error.message}`);
@@ -166,174 +129,162 @@ class FormFiller {
   }
 
   /**
-   * Click a radio button
-   * @param {Page} page - Playwright page instance
-   * @param {string} selector - CSS selector for the radio button
-   * @returns {Promise<void>}
-   */
-  async selectRadio(page, selector) {
-    try {
-      await humanBehavior.humanClick(page, selector);
-      await humanBehavior.randomDelay(200, 500);
-    } catch (error) {
-      logger.error(`Failed to select radio ${selector}: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Fill form with data from a row
-   * @param {Page} page - Playwright page instance
-   * @param {Object} formData - Object with field keys and values
-   * @param {Object} formSelectors - Object with field keys and CSS selectors
-   * @returns {Promise<void>}
-   */
-  async fillForm(page, formData, formSelectors) {
-    try {
-      // Fill each field based on mapping
-      for (const [fieldKey, selector] of Object.entries(formSelectors)) {
-        // Skip submit button
-        if (fieldKey === 'submitButton') {
-          continue;
-        }
-
-        const value = formData[fieldKey];
-        
-        // Skip empty optional fields
-        if (!value && fieldKey === 'apartment') {
-          continue;
-        }
-        
-        if (!value) {
-          continue;
-        }
-
-        // Determine field type and fill accordingly
-        await this.fillField(page, selector, value);
-
-        // Random delay between fields
-        await humanBehavior.randomDelay();
-      }
-    } catch (error) {
-      logger.error(`Failed to fill form: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Fill a single field (auto-detect type)
+   * Remove readonly attribute from an input field
    * @param {Page} page - Playwright page instance
    * @param {string} selector - CSS selector for the field
-   * @param {string} value - Value to enter
    * @returns {Promise<void>}
    */
-  async fillField(page, selector, value) {
+  async removeReadonly(page, selector) {
     try {
-      // Wait for element
-      await page.waitForSelector(selector, { timeout: 10000 });
+      await page.locator(selector).evaluate(el => el.removeAttribute('readonly'));
+      await humanBehavior.randomDelay(100, 300);
+    } catch (error) {
+      logger.error(`Failed to remove readonly from ${selector}: ${error.message}`);
+      throw error;
+    }
+  }
 
-      // Get element type
-      const tagName = await page.locator(selector).evaluate(el => el.tagName.toLowerCase());
-      const type = await page.locator(selector).evaluate(el => el.type || '');
+  /**
+   * Type text character by character (for fields that don't allow paste)
+   * @param {Page} page - Playwright page instance
+   * @param {string} selector - CSS selector for the field
+   * @param {string} value - Value to type
+   * @returns {Promise<void>}
+   */
+  async typeCharacterByCharacter(page, selector, value) {
+    try {
+      await page.locator(selector).scrollIntoViewIfNeeded();
+      await humanBehavior.randomDelay(300, 700);
+      await page.locator(selector).click();
+      await humanBehavior.randomDelay(200, 400);
+      await page.locator(selector).fill('');
+      await humanBehavior.randomDelay(100, 200);
 
-      // Fill based on type
-      if (tagName === 'select') {
-        await this.selectDropdown(page, selector, value);
-      } else if (type === 'checkbox') {
-        const checked = value.toLowerCase() === 'true' || value === '1' || value.toLowerCase() === 'yes';
-        await this.setCheckbox(page, selector, checked);
-      } else if (type === 'radio') {
-        await this.selectRadio(page, selector);
-      } else {
-        // Default to text input
-        await this.fillTextField(page, selector, value);
+      for (const char of value) {
+        const charDelay = humanBehavior.getRandomDelay(50, 150);
+        await page.locator(selector).type(char, { delay: charDelay });
       }
+
+      await humanBehavior.randomDelay(200, 500);
     } catch (error) {
-      logger.error(`Failed to fill field ${selector}: ${error.message}`);
+      logger.error(`Failed to type character by character: ${error.message}`);
       throw error;
     }
   }
 
   /**
-   * Submit the form
+   * Select dropdown by visible text instead of value
    * @param {Page} page - Playwright page instance
-   * @param {string} submitSelector - CSS selector for submit button
+   * @param {string} selector - CSS selector for the select element
+   * @param {string} text - Visible text to select
    * @returns {Promise<void>}
    */
-  async submitForm(page, submitSelector) {
+  async selectDropdownByText(page, selector, text) {
     try {
-      // Longer delay before submit
-      await humanBehavior.submitDelay();
+      await page.locator(selector).scrollIntoViewIfNeeded();
+      await humanBehavior.randomDelay(300, 700);
 
-      // Scroll submit button into view
-      await page.locator(submitSelector).scrollIntoViewIfNeeded();
-      await humanBehavior.randomDelay(500, 1000);
-
-      // Click submit
-      await humanBehavior.humanClick(page, submitSelector);
-
-      // Wait for navigation or response
-      await humanBehavior.randomDelay(1000, 2000);
-    } catch (error) {
-      logger.error(`Failed to submit form: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Complete form filling workflow
-   * @param {Page} page - Playwright page instance
-   * @param {Object} options - Options object
-   * @param {Object} options.formData - Form data object with field keys and values
-   * @param {Object} options.formSelectors - Form selectors object with field keys and CSS selectors
-   * @param {string} options.submitSelector - Submit button selector
-   * @param {string} options.url - URL to navigate to (optional)
-   * @returns {Promise<void>}
-   */
-  async fillAndSubmit(page, options) {
-    try {
-      const {
-        formData,
-        formSelectors,
-        submitSelector,
-        url = null
-      } = options;
-
-      // Navigate to page
-      await this.navigateToPage(page, url);
-
-      // Fill form
-      await this.fillForm(page, formData, formSelectors);
-
-      // Submit form
-      await this.submitForm(page, submitSelector);
-    } catch (error) {
-      logger.error(`Form filling workflow failed: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Verify form was filled correctly (optional validation)
-   * @param {Page} page - Playwright page instance
-   * @param {Object} fieldMapping - Field selector mapping
-   * @returns {Promise<boolean>} - True if all fields are filled
-   */
-  async verifyForm(page, fieldMapping) {
-    try {
-      for (const selector of Object.values(fieldMapping)) {
-        const element = page.locator(selector);
-        const value = await element.inputValue().catch(() => '');
-        
-        if (!value) {
-          return false;
+      await page.locator(selector).evaluate((select, textToFind) => {
+        const options = Array.from(select.options);
+        const option = options.find(opt => opt.text.trim() === textToFind);
+        if (option) {
+          select.value = option.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
         }
+      }, text);
+
+      await humanBehavior.randomDelay(200, 500);
+    } catch (error) {
+      logger.error(`Failed to select dropdown by text: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Fill the registration form with address and contact information
+   * @param {Page} page - Playwright page instance
+   * @param {Object} formData - Object containing form field values
+   * @param {string} formData.firstName - First name
+   * @param {string} formData.lastName - Last name
+   * @param {string} formData.streetAddress - Street address
+   * @param {string} formData.apartment - Apartment/Suite (optional)
+   * @param {string} formData.city - City
+   * @param {string} formData.state - State code (e.g., 'CA', 'NY')
+   * @param {string} formData.zipCode - ZIP code
+   * @param {string} formData.phoneNumber - Phone number
+   * @param {string} formData.emailAddress - Email address
+   * @returns {Promise<void>}
+   */
+  async fillRegistrationForm(page, formData) {
+    try {
+      // Log task summary in one line
+      logger.info(`Filling form: ${formData.emailAddress}, ${formData.firstName} ${formData.lastName}, ${formData.streetAddress}, ${formData.city}, ${formData.state}, ${formData.zipCode}`);
+
+      // Select Country (United States)
+      await this.selectDropdownByText(page, '#addCountry', 'United States');
+      await humanBehavior.randomDelay();
+
+      // Fill First Name
+      await this.fillTextField(page, '#addFirstName', formData.firstName);
+      await humanBehavior.randomDelay();
+
+      // Fill Last Name
+      await this.fillTextField(page, '#addLastName', formData.lastName);
+      await humanBehavior.randomDelay();
+
+      // Fill Street Address
+      await this.fillTextField(page, '#addLine1', formData.streetAddress);
+      await humanBehavior.randomDelay();
+
+      // Fill Apartment (optional)
+      if (formData.apartment) {
+        await this.fillTextField(page, '#addLine2', formData.apartment);
+        await humanBehavior.randomDelay();
       }
 
-      return true;
+      // Fill City
+      await this.fillTextField(page, '#addCity', formData.city);
+      await humanBehavior.randomDelay();
+
+      // Select State
+      await this.selectDropdown(page, '#addRegion', formData.state);
+      await humanBehavior.randomDelay();
+
+      // Fill ZIP Code
+      await this.fillTextField(page, '#addZIPCode', formData.zipCode);
+      await humanBehavior.randomDelay();
+
+      // Fill Phone Number
+      await this.fillTextField(page, '#addPhoneNumber', formData.phoneNumber);
+      await humanBehavior.randomDelay();
+
+      // Fill Email Address
+      await this.fillTextField(page, '#emailAddressBilling', formData.emailAddress);
+      await humanBehavior.randomDelay();
+
+      // Fill Confirm Email Address (remove readonly, type character by character)
+      await this.removeReadonly(page, '#confirmemailAddressBilling');
+      await this.typeCharacterByCharacter(page, '#confirmemailAddressBilling', formData.emailAddress);
+      
+      // Check E-Sign Disclosure checkbox
+      await this.setCheckbox(page, 'input[formcontrolname="termsAcceptedEsign"]', true);
+      await humanBehavior.randomDelay();
+
+      // Check Cardholder Agreement checkbox
+      await this.setCheckbox(page, 'input[formcontrolname="termsAcceptedCard"]', true);
+      await humanBehavior.randomDelay();
+
+      // Click Activate button
+      await humanBehavior.submitDelay();
+      await page.locator('button[data-trustmark-btn]').scrollIntoViewIfNeeded();
+      await humanBehavior.randomDelay(500, 1000);
+      await humanBehavior.humanClick(page, 'button[data-trustmark-btn]');
+      await humanBehavior.randomDelay(1000, 2000);
+      
+      logger.info('Registration form completed and activated successfully');
     } catch (error) {
-      logger.error(`Form verification failed: ${error.message}`);
-      return false;
+      logger.error(`Failed to fill registration form: ${error.message}`);
+      throw error;
     }
   }
 }

@@ -250,28 +250,25 @@ class MPCBot {
 
 			logger.info('✓ Redeem code validated successfully');
 
-			// Step 3: Fill form with user data
-			logger.info('Step 2: Filling form with user information...');
+			// Step 2: Fill and submit registration form
+			logger.info('Step 2: Filling and submitting registration form...');
+			
+			const formData = {
+				firstName: extractedData.firstName,
+				lastName: extractedData.lastName,
+				streetAddress: extractedData.streetAddress,
+				apartment: extractedData.apartment,
+				city: extractedData.city,
+				state: extractedData.state,
+				zipCode: extractedData.zipCode,
+				phoneNumber: extractedData.phoneNumber,
+				emailAddress: extractedData.email
+			};
 
-			// Sanitize data before form submission
-			const sanitizedData = sheetMapping.sanitizeRowData(extractedData);
+			await formFiller.fillRegistrationForm(page, formData);
 
-			// Build form data with transformations (e.g., state conversion)
-			const formData = sheetMapping.buildFormData(sanitizedData);
-
-			// Get form selectors from mapping
-			const formSelectors = sheetMapping.FORM_SELECTORS;
-			const submitSelector = formSelectors.submitButton;
-
-			// Fill the form (without navigation since we already navigated)
-			await formFiller.fillForm(page, formData, formSelectors);
-
-			// Step 4: Submit the form
-			logger.info('Step 3: Submitting form...');
-			await formFiller.submitForm(page, submitSelector);
-
-			// Extract card data from webpage
-			logger.info('Step 4: Extracting card data from webpage...');
+			// Step 3: Extract card data from webpage
+			logger.info('Step 3: Extracting card data from webpage...');
 
 			// Configure extraction for the 4 required fields: Amount, CardNumber, Exp, CVV
 			const extractionConfig = config.iframeSelectors || {
