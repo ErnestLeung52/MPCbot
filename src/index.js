@@ -15,7 +15,6 @@ const googleSheets = require('./services/googleSheets');
 const proxyManager = require('./services/proxyManager');
 const browserService = require('./services/browser');
 const formFiller = require('./automation/formFiller');
-const iframeExtractor = require('./automation/iframeExtractor');
 
 class MPCBot {
 	constructor() {
@@ -262,45 +261,27 @@ class MPCBot {
 				state: extractedData.state,
 				zipCode: extractedData.zipCode,
 				phoneNumber: extractedData.phoneNumber,
-				emailAddress: extractedData.email
+				emailAddress: extractedData.email,
+				addressVerificationChoice: config.automation.addressVerification
 			};
 
-			await formFiller.fillRegistrationForm(page, formData);
+			// Step 3: Fill form and extract card data
+			const cardData = await formFiller.fillRegistrationForm(page, formData);
 
-			// Step 3: Extract card data from webpage
-			logger.info('Step 3: Extracting card data from webpage...');
-
-			// Configure extraction for the 4 required fields: Amount, CardNumber, Exp, CVV
-			const extractionConfig = config.iframeSelectors || {
-				iframeIndex: 1, // Default to first iframe (after main frame)
-				fields: {
-					// TODO: Update these selectors based on your actual webpage structure
-					amount: '#card-amount', // Selector for card amount
-					cardNumber: '#card-number', // Selector for card number
-					exp: '#card-exp', // Selector for expiration date
-					cvv: '#card-cvv', // Selector for CVV
-				},
-			};
-
-			// Check if iframe selectors are configured
-			if (!extractionConfig.fields || Object.keys(extractionConfig.fields).length === 0) {
-				logger.warn('No iframe/page extraction fields configured in config.js');
-				logger.warn('Please configure config.iframeSelectors with card data extraction fields');
-				logger.warn('Required fields: amount, cardNumber, exp, cvv');
+			// Check if card data was extracted
+			if (!cardData) {
+				throw new Error('Card activation failed - no card data received');
 			}
-
-			const cardData = await iframeExtractor.extract(page, extractionConfig);
 
 			// Update Google Sheet with results
 			const updateData = sheetMapping.buildUpdateData({
 				status: 'Success',
-				extractedData: cardData, // Contains: amount, cardNumber, exp, cvv
+				extractedData: cardData, // Contains: cardNumber, exp, cvv
 			});
 
 			await googleSheets.updateRow(rowIndex, updateData);
 
 			logger.info('✓ Card data extracted and saved:');
-			if (cardData.amount) logger.info(`  Amount: ${cardData.amount}`);
 			if (cardData.cardNumber) logger.info(`  Card: ${cardData.cardNumber}`);
 			if (cardData.exp) logger.info(`  Exp: ${cardData.exp}`);
 			if (cardData.cvv) logger.info(`  CVV: ${cardData.cvv}`);

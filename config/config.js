@@ -29,7 +29,8 @@ const config = {
     typingSpeedMin: parseInt(process.env.TYPING_SPEED_MIN) || 50,
     typingSpeedMax: parseInt(process.env.TYPING_SPEED_MAX) || 150,
     typoChance: 0.05, // 5% chance of typo
-    submitDelay: { min: 2000, max: 4000 } // Longer delay before submit
+    submitDelay: { min: 2000, max: 4000 }, // Longer delay before submit
+    addressVerification: 'entered' // 'entered' or 'suggested' - which address to use if verification modal appears
   },
 
   // Error Handling
@@ -43,31 +44,6 @@ const config = {
   logging: {
     level: process.env.LOG_LEVEL || 'info',
     dir: './logs'
-  },
-
-  // Form Field Selectors (now managed in sheetMapping.js)
-  formSelectors: sheetMapping.FORM_SELECTORS,
-
-  // Sheet Column Mappings (now managed in sheetMapping.js)
-  columnMappings: sheetMapping.COLUMN_MAPPINGS,
-
-  // Iframe/Page Selectors for card data extraction
-  iframeSelectors: {
-    // Configure extraction based on your target website
-    // You can use iframe or direct page selectors
-    
-    // Uncomment ONE of these methods to identify the iframe (if card data is in iframe):
-    // iframeSelector: '#result-iframe',
-    // iframeIndex: 1,
-    // iframeUrl: /result\.php/,
-    
-    // Card data extraction fields (update these selectors)
-    fields: {
-      amount: '#card-amount',        // TODO: Update with actual selector
-      cardNumber: '#card-number',    // TODO: Update with actual selector
-      exp: '#card-exp',              // TODO: Update with actual selector
-      cvv: '#card-cvv'               // TODO: Update with actual selector
-    }
   }
 };
 

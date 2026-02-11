@@ -201,6 +201,115 @@ class FormFiller {
   }
 
   /**
+   * Check if address verification modal is displayed
+   * @param {Page} page - Playwright page instance
+   * @returns {Promise<boolean>} - True if modal is visible
+   */
+  async isAddressVerificationModalVisible(page) {
+    try {
+      const modal = page.locator('.modal-dialog .modal-title:has-text("Verify Address")');
+      const isVisible = await modal.isVisible({ timeout: 5000 }).catch(() => false);
+      return isVisible;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Check if card activation success modal is displayed
+   * @param {Page} page - Playwright page instance
+   * @returns {Promise<boolean>} - True if modal is visible
+   */
+  async isCardActivatedModalVisible(page) {
+    try {
+      const modal = page.locator('app-card-activated-modal-content');
+      const isVisible = await modal.isVisible({ timeout: 5000 }).catch(() => false);
+      return isVisible;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /**
+   * Extract card data from the activation success modal
+   * @param {Page} page - Playwright page instance
+   * @returns {Promise<Object>} - Object with cardNumber, cvv, exp
+   */
+  async extractCardData(page) {
+    try {
+      logger.info('Extracting card data from success modal...');
+      
+      // Wait for SVG to be fully loaded
+      await page.waitForSelector('app-card-layout svg', { timeout: 10000 });
+      await humanBehavior.randomDelay(1000, 2000);
+
+      // Extract card number (text at y="107" with specific font-size)
+      const cardNumber = await page.locator('app-card-layout svg text[y="107"]')
+        .textContent()
+        .catch(() => '');
+
+      // Extract CVV (text at x="21" y="148")
+      const cvv = await page.locator('app-card-layout svg text[x="21"][y="148"]')
+        .textContent()
+        .catch(() => '');
+
+      // Extract expiration date (text at x="116" y="148")
+      const exp = await page.locator('app-card-layout svg text[x="116"][y="148"]')
+        .textContent()
+        .catch(() => '');
+
+      // Clean up the extracted data (remove extra spaces)
+      const cardData = {
+        cardNumber: cardNumber.trim().replace(/\s+/g, ''),
+        cvv: cvv.trim(),
+        exp: exp.trim()
+      };
+
+      logger.info(`Card extracted: ${cardData.cardNumber}, CVV: ${cardData.cvv}, Exp: ${cardData.exp}`);
+      
+      return cardData;
+    } catch (error) {
+      logger.error(`Failed to extract card data: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle address verification modal
+   * @param {Page} page - Playwright page instance
+   * @param {string} choice - 'entered' or 'suggested' (default: 'entered')
+   * @returns {Promise<void>}
+   */
+  async handleAddressVerification(page, choice = 'entered') {
+    try {
+      logger.info('Address verification modal detected');
+      
+      // Wait for modal to be fully visible
+      await humanBehavior.randomDelay(1000, 2000);
+
+      let buttonSelector;
+      if (choice === 'suggested') {
+        buttonSelector = 'button.btn-secondary:has-text("Use Suggested Address")';
+        logger.info('Selecting suggested address');
+      } else {
+        buttonSelector = 'button.btn-primary:has-text("Use Entered Address")';
+        logger.info('Selecting entered address');
+      }
+
+      // Click the chosen button
+      await page.locator(buttonSelector).scrollIntoViewIfNeeded();
+      await humanBehavior.randomDelay(500, 1000);
+      await humanBehavior.humanClick(page, buttonSelector);
+      await humanBehavior.randomDelay(1000, 2000);
+
+      logger.info('Address verification completed');
+    } catch (error) {
+      logger.error(`Failed to handle address verification: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Fill the registration form with address and contact information
    * @param {Page} page - Playwright page instance
    * @param {Object} formData - Object containing form field values
@@ -213,6 +322,7 @@ class FormFiller {
    * @param {string} formData.zipCode - ZIP code
    * @param {string} formData.phoneNumber - Phone number
    * @param {string} formData.emailAddress - Email address
+   * @param {string} formData.addressVerificationChoice - 'entered' or 'suggested' (default: 'entered')
    * @returns {Promise<void>}
    */
   async fillRegistrationForm(page, formData) {
@@ -279,9 +389,36 @@ class FormFiller {
       await page.locator('button[data-trustmark-btn]').scrollIntoViewIfNeeded();
       await humanBehavior.randomDelay(500, 1000);
       await humanBehavior.humanClick(page, 'button[data-trustmark-btn]');
-      await humanBehavior.randomDelay(1000, 2000);
       
-      logger.info('Registration form completed and activated successfully');
+      // Wait for processing (2-5 seconds as mentioned)
+      logger.info('Waiting for activation to process...');
+      await humanBehavior.randomDelay(2000, 3000);
+
+      // Check if address verification modal appears
+      const needsVerification = await this.isAddressVerificationModalVisible(page);
+      
+      if (needsVerification) {
+        const verificationChoice = formData.addressVerificationChoice || 'entered';
+        await this.handleAddressVerification(page, verificationChoice);
+        
+        // Wait for modal to close and card activation to complete
+        await humanBehavior.randomDelay(2000, 3000);
+      } else {
+        logger.info('No address verification needed');
+      }
+
+      // Check if card activation success modal appears
+      const isCardActivated = await this.isCardActivatedModalVisible(page);
+      
+      if (isCardActivated) {
+        // Extract card data from the success modal
+        const cardData = await this.extractCardData(page);
+        logger.info('Registration form completed and card activated successfully');
+        return cardData;
+      } else {
+        logger.warn('Card activation modal not detected');
+        return null;
+      }
     } catch (error) {
       logger.error(`Failed to fill registration form: ${error.message}`);
       throw error;
