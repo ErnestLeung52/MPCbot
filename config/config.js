@@ -21,6 +21,7 @@ const config = {
     // Reference: https://roundproxies.com/blog/patchright/
     headless: process.env.HEADLESS === 'true',
     keepOpen: process.env.KEEP_BROWSER_OPEN === 'true', // Keep browser open for testing/debugging
+    wipeProfileOnStart: process.env.WIPE_PROFILE_ON_START === 'true', // Completely wipe profile before each run
   },
 
   // Automation Settings

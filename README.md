@@ -16,7 +16,7 @@ A Node.js automation app using Patchright (undetectable Playwright fork) to perf
 
 - Node.js 16.x or higher
 - Google Cloud Project with Sheets API enabled
-- List of proxies (optional but recommended)
+- List of proxies (optional but recommended for production)
 - Target website details (form selectors, iframe structure)
 
 ## Installation
@@ -65,26 +65,26 @@ SCREENSHOT_ON_ERROR=true
 LOG_LEVEL=info
 ```
 
-4. Set up proxy list (optional):
+4. Set up proxy list (optional but recommended):
+
+**Note:** The bot can run without proxies, but it's recommended to use them for production.
+
 ```bash
 cp config/proxies.example.json config/proxies.json
 ```
 
-Edit `config/proxies.json` with your proxies:
-```json
-[
-  {
-    "server": "http://proxy1.example.com:8080",
-    "username": "user1",
-    "password": "pass1"
-  },
-  {
-    "server": "http://proxy2.example.com:8080",
-    "username": "user2",
-    "password": "pass2"
-  }
-]
+Edit `config/proxies.json` with your proxies (format: `IP:PORT:USERNAME:PASSWORD`):
 ```
+184.169.235.23:3128:user1:pass1
+192.168.1.100:8080:user2:pass2
+10.0.0.50:3128:user3:pass3
+```
+
+**Running without proxies:**
+- Delete or empty `config/proxies.json`
+- Bot will show a warning but continue to run
+- All tasks will use your direct IP address
+- No task limit applied (processes all valid tasks)
 
 ## Configuration
 

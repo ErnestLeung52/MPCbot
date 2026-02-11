@@ -24,6 +24,7 @@ class MPCBot {
 		this.failedTasks = 0;
 		this.startTime = null;
 		this.proxyScheduler = null;
+		this.isShuttingDown = false;
 	}
 
 	/**
@@ -45,27 +46,40 @@ class MPCBot {
 			// Initialize proxy scheduler if we have proxies
 			const proxyCount = proxyManager.getCount();
 			if (proxyCount === 0) {
-				logger.error('No proxies loaded. Cannot run continuous workflow.');
-				logger.error('Please add proxies to config/proxies.json');
-				process.exit(1);
+				logger.warn('');
+				logger.warn('='.repeat(60));
+				logger.warn('WARNING: NO PROXIES LOADED');
+				logger.warn('='.repeat(60));
+				logger.warn('The bot will run WITHOUT proxy rotation.');
+				logger.warn('All tasks will use your direct IP address.');
+				logger.warn('');
+				logger.warn('Recommendations:');
+				logger.warn('  - Add proxies to config/proxies.json for better anonymity');
+				logger.warn('  - Without proxies, there is NO task limit');
+				logger.warn('  - Risk of IP-based detection or rate limiting');
+				logger.warn('='.repeat(60));
+				logger.warn('');
+				
+				// No proxy scheduler in this case
+				this.proxyScheduler = null;
+			} else {
+				// Get all proxies for the scheduler
+				const proxies = [];
+				for (let i = 0; i < proxyCount; i++) {
+					proxies.push(proxyManager.getByIndex(i));
+				}
+
+				// Create scheduler
+				const usesPerProxy = config.proxy.usesPerProxy;
+				this.proxyScheduler = new ProxyScheduler(proxies, usesPerProxy);
+
+				// Log proxy configuration
+				logger.info('');
+				logger.info('Proxy Configuration:');
+				logger.info(`  Total Proxies: ${proxyCount}`);
+				logger.info(`  Uses Per Proxy: ${usesPerProxy}`);
+				logger.info(`  Max Tasks: ${this.proxyScheduler.getTotalTasks()}`);
 			}
-
-			// Get all proxies for the scheduler
-			const proxies = [];
-			for (let i = 0; i < proxyCount; i++) {
-				proxies.push(proxyManager.getByIndex(i));
-			}
-
-			// Create scheduler
-			const usesPerProxy = config.proxy.usesPerProxy;
-			this.proxyScheduler = new ProxyScheduler(proxies, usesPerProxy);
-
-			// Log proxy configuration
-			logger.info('');
-			logger.info('Proxy Configuration:');
-			logger.info(`  Total Proxies: ${proxyCount}`);
-			logger.info(`  Uses Per Proxy: ${usesPerProxy}`);
-			logger.info(`  Max Tasks: ${this.proxyScheduler.getTotalTasks()}`);
 
 			logger.info('');
 			logger.info('Initialization complete');
@@ -240,20 +254,35 @@ class MPCBot {
 				logger.warn(`Could not update status to In Progress: ${statusError.message}`);
 			}
 
-			// Get next proxy from scheduler
-			const proxyAllocation = this.proxyScheduler.getNext();
+			// Get next proxy from scheduler (if using proxies)
+			let proxy = null;
 			
-			if (!proxyAllocation) {
-				throw new Error('No proxy available - all proxies exhausted');
+			if (this.proxyScheduler) {
+				const proxyAllocation = this.proxyScheduler.getNext();
+				
+				if (!proxyAllocation) {
+					throw new Error('No proxy available - all proxies exhausted');
+				}
+
+				proxy = proxyAllocation.proxy;
+				const { proxyIndex, currentUsage, remaining } = proxyAllocation;
+
+				// Log proxy usage info
+				logger.info(`Using Proxy #${proxyIndex + 1} (Usage: ${currentUsage}/${config.proxy.usesPerProxy}, Remaining: ${remaining})`);
+			} else {
+				// Running without proxies
+				logger.info('Running without proxy (using direct IP)');
 			}
 
-			const { proxy, proxyIndex, currentUsage, remaining } = proxyAllocation;
+			// Optional: Completely wipe browser profile before launch (if configured)
+			if (config.browser.wipeProfileOnStart) {
+				await browserService.wipeBrowserProfile();
+			}
 
-			// Log proxy usage info
-			logger.info(`Using Proxy #${proxyIndex + 1} (Usage: ${currentUsage}/${config.proxy.usesPerProxy}, Remaining: ${remaining})`);
-
-			// Launch browser with proxy
+			// Launch browser with proxy (or without if none available)
+			// NOTE: launch() automatically deletes persistent data files before starting
 			browser = await browserService.launch(proxy);
+			
 			page = await browserService.createPage(browser);
 
 			// Extract row data using sheet mappings
@@ -336,6 +365,7 @@ class MPCBot {
 			logger.logTaskComplete(taskNumber, totalRows, duration);
 
 			// Close browser (unless keepOpen is enabled for testing)
+			// NOTE: Persistent data files will be deleted on next launch
 			if (!config.browser.keepOpen) {
 				await browserService.close(browser);
 			} else {
@@ -370,6 +400,7 @@ class MPCBot {
 			}
 
 			// Close browser if still open (unless keepOpen is enabled)
+			// NOTE: Persistent data files will be deleted on next launch
 			if (browser && !config.browser.keepOpen) {
 				await browserService.close(browser);
 			} else if (browser) {
@@ -398,14 +429,27 @@ class MPCBot {
 			this.startTime = Date.now();
 
 			// Get maximum tasks we can run based on proxy availability
-			const maxTasks = this.proxyScheduler.getTotalTasks();
-			logger.info('');
-			logger.info('='.repeat(60));
-			logger.info('CONTINUOUS WORKFLOW CONFIGURATION');
-			logger.info('='.repeat(60));
-			logger.info(this.proxyScheduler.getUsageSummary());
-			logger.info('='.repeat(60));
-			logger.info('');
+			// If no proxies, process all valid tasks (no limit)
+			const maxTasks = this.proxyScheduler ? this.proxyScheduler.getTotalTasks() : Infinity;
+			
+			if (this.proxyScheduler) {
+				logger.info('');
+				logger.info('='.repeat(60));
+				logger.info('CONTINUOUS WORKFLOW CONFIGURATION');
+				logger.info('='.repeat(60));
+				logger.info(this.proxyScheduler.getUsageSummary());
+				logger.info('='.repeat(60));
+				logger.info('');
+			} else {
+				logger.info('');
+				logger.info('='.repeat(60));
+				logger.info('RUNNING WITHOUT PROXIES');
+				logger.info('='.repeat(60));
+				logger.info('  All tasks will use your direct IP address');
+				logger.info('  No task limit applied');
+				logger.info('='.repeat(60));
+				logger.info('');
+			}
 
 			// Fetch all rows from sheet
 			const rows = await googleSheets.fetchRows();
@@ -433,12 +477,13 @@ class MPCBot {
 			}
 
 			// Limit tasks to what we can handle with available proxies
+			// If no proxies (maxTasks = Infinity), process all valid tasks
 			const tasksToProcess = validTasks.slice(0, maxTasks);
 			const skippedTasks = validTasks.length - tasksToProcess.length;
 
 			this.totalTasks = tasksToProcess.length;
 
-			if (skippedTasks > 0) {
+			if (skippedTasks > 0 && this.proxyScheduler) {
 				logger.warn('');
 				logger.warn('='.repeat(60));
 				logger.warn('TASK LIMIT REACHED');
@@ -462,8 +507,8 @@ class MPCBot {
 			for (let taskNum = 0; taskNum < tasksToProcess.length; taskNum++) {
 				const task = tasksToProcess[taskNum];
 
-				// Check if we still have proxies available
-				if (!this.proxyScheduler.hasMore()) {
+				// Check if we still have proxies available (only if using proxies)
+				if (this.proxyScheduler && !this.proxyScheduler.hasMore()) {
 					logger.warn('All proxies exhausted. Stopping workflow.');
 					break;
 				}
@@ -521,8 +566,38 @@ class MPCBot {
 		logger.info(`Failed: ${this.failedTasks}`);
 		logger.info(`Duration: ${minutes}m ${seconds}s`);
 		logger.info('');
-		logger.info(this.proxyScheduler.getUsageSummary());
+		
+		if (this.proxyScheduler) {
+			logger.info(this.proxyScheduler.getUsageSummary());
+		} else {
+			logger.info('Proxy Usage: None (ran without proxies)');
+		}
+		
 		logger.info('='.repeat(60));
+	}
+}
+
+/**
+ * Graceful shutdown handler
+ * Ensures browser closes properly when Ctrl+C is pressed
+ */
+async function gracefulShutdown(signal) {
+	logger.info('');
+	logger.info('='.repeat(60));
+	logger.info(`${signal} received - Shutting down gracefully...`);
+	logger.info('='.repeat(60));
+	
+	try {
+		// Force close any open browser
+		await browserService.forceClose();
+		
+		logger.info('✓ Cleanup completed');
+		logger.info('Goodbye!');
+		
+		process.exit(0);
+	} catch (error) {
+		logger.error(`Error during shutdown: ${error.message}`);
+		process.exit(1);
 	}
 }
 
@@ -544,14 +619,20 @@ async function main() {
 	}
 }
 
+// Handle graceful shutdown signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT (Ctrl+C)'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+
 // Handle uncaught errors
-process.on('unhandledRejection', (error) => {
+process.on('unhandledRejection', async (error) => {
 	logger.error(`Unhandled rejection: ${error.message}`);
+	await browserService.forceClose();
 	process.exit(1);
 });
 
-process.on('uncaughtException', (error) => {
+process.on('uncaughtException', async (error) => {
 	logger.error(`Uncaught exception: ${error.message}`);
+	await browserService.forceClose();
 	process.exit(1);
 });
 
