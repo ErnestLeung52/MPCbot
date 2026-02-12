@@ -46,7 +46,9 @@ const config = {
   errorHandling: {
     stopOnError: process.env.STOP_ON_ERROR === 'true',
     screenshotOnError: process.env.SCREENSHOT_ON_ERROR === 'true',
-    screenshotDir: './screenshots'
+    screenshotDir: './screenshots',
+    taskTimeout: parseInt(process.env.TASK_TIMEOUT) || 180000, // 3 minutes default timeout per task
+    maxConsecutiveFailures: parseInt(process.env.MAX_CONSECUTIVE_FAILURES) || 5 // Stop after N consecutive failures
   },
 
   // Logging

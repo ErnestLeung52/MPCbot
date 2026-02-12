@@ -22,6 +22,8 @@ class MPCBot {
 		this.totalTasks = 0;
 		this.completedTasks = 0;
 		this.failedTasks = 0;
+		this.skippedTasks = 0;
+		this.consecutiveFailures = 0;
 		this.startTime = null;
 		this.proxyScheduler = null;
 		this.isShuttingDown = false;
@@ -223,6 +225,25 @@ class MPCBot {
 	}
 
 	/**
+	 * Process a single task with timeout wrapper
+	 * @param {Array<string>} rowData - Data from sheet row
+	 * @param {Array<string>} headers - Column headers
+	 * @param {number} rowIndex - Index of the row (0-based)
+	 * @param {number} totalRows - Total number of rows
+	 * @returns {Promise<Object>} - Result object
+	 */
+	async processTaskWithTimeout(rowData, headers, rowIndex, totalRows) {
+		const timeout = config.errorHandling.taskTimeout;
+		
+		return Promise.race([
+			this.processTask(rowData, headers, rowIndex, totalRows),
+			new Promise((_, reject) => 
+				setTimeout(() => reject(new Error(`Task timeout after ${timeout}ms`)), timeout)
+			)
+		]);
+	}
+
+	/**
 	 * Process a single task (row from sheet)
 	 * @param {Array<string>} rowData - Data from sheet row
 	 * @param {Array<string>} headers - Column headers
@@ -370,14 +391,13 @@ class MPCBot {
 				await browserService.close(browser);
 			} else {
 				logger.info('✓ Task completed successfully!');
-				logger.info('Browser kept open for testing (KEEP_BROWSER_OPEN=true)');
-				logger.info('Press Ctrl+C to exit when done inspecting...');
-				
-				// Keep process alive indefinitely for debugging
-				await new Promise(() => {}); // Never resolves
+				logger.warn('⚠️  Browser kept open for testing (KEEP_BROWSER_OPEN=true)');
+				logger.warn('⚠️  Bot will NOT continue to next task until you close the browser');
+				logger.warn('⚠️  Set KEEP_BROWSER_OPEN=false for continuous operation');
 			}
 
 			this.completedTasks++;
+			this.consecutiveFailures = 0; // Reset consecutive failure counter on success
 
 			return {
 				success: true,
@@ -402,21 +422,31 @@ class MPCBot {
 			// Close browser if still open (unless keepOpen is enabled)
 			// NOTE: Persistent data files will be deleted on next launch
 			if (browser && !config.browser.keepOpen) {
-				await browserService.close(browser);
+				try {
+					await browserService.close(browser);
+				} catch (closeError) {
+					logger.warn(`Failed to close browser: ${closeError.message}`);
+					// Try force close
+					try {
+						await browserService.forceClose();
+					} catch (forceError) {
+						// Silent fail
+					}
+				}
 			} else if (browser) {
-				logger.warn('Browser kept open for debugging (KEEP_BROWSER_OPEN=true)');
-				logger.warn('Press Ctrl+C to exit when done inspecting...');
-				
-				// Keep process alive indefinitely for debugging
-				await new Promise(() => {}); // Never resolves
+				logger.warn('⚠️  Browser kept open for debugging (KEEP_BROWSER_OPEN=true)');
+				logger.warn('⚠️  Bot will NOT continue to next task until you close the browser');
+				logger.warn('⚠️  Set KEEP_BROWSER_OPEN=false for continuous operation');
 			}
 
 			this.failedTasks++;
+			this.consecutiveFailures++;
 
-			// Re-throw error to stop execution (if configured)
-			if (config.errorHandling.stopOnError) {
-				throw error;
-			}
+			// Return error result instead of throwing (unless stopOnError is true)
+			return {
+				success: false,
+				error: error.message,
+			};
 		}
 	}
 
@@ -513,6 +543,23 @@ class MPCBot {
 					break;
 				}
 
+				// Check if we've hit max consecutive failures
+				if (this.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
+					logger.error('');
+					logger.error('='.repeat(60));
+					logger.error('STOPPING: Maximum consecutive failures reached');
+					logger.error('='.repeat(60));
+					logger.error(`  Consecutive failures: ${this.consecutiveFailures}`);
+					logger.error(`  Max allowed: ${config.errorHandling.maxConsecutiveFailures}`);
+					logger.error('');
+					logger.error('This usually indicates a systemic issue (proxy problems,');
+					logger.error('website changes, credential issues, etc.)');
+					logger.error('');
+					logger.error('Please investigate before continuing.');
+					logger.error('='.repeat(60));
+					break;
+				}
+
 				logger.info('='.repeat(60));
 				logger.info(`TASK ${taskNum + 1}/${this.totalTasks}`);
 				logger.info('-'.repeat(60));
@@ -522,20 +569,55 @@ class MPCBot {
 				logger.info('='.repeat(60));
 
 				try {
-					await this.processTask(
+					// Process task with timeout wrapper
+					const result = await this.processTaskWithTimeout(
 						task.rowData,
 						headers,
 						task.rowIndex, // Use the actual row index for updating sheet
 						this.totalTasks,
 					);
+
+					// Check if task failed
+					if (result && !result.success) {
+						// Task failed but was handled gracefully
+						if (config.errorHandling.stopOnError) {
+							logger.error('Stopping execution due to error (STOP_ON_ERROR=true)');
+							break;
+						} else {
+							logger.warn(`Skipping to next task (consecutive failures: ${this.consecutiveFailures})`);
+						}
+					}
 				} catch (error) {
-					// Error already handled in processTask
-					// Stop execution if configured
+					// Timeout or unhandled error
+					logger.error(`Task failed with unhandled error: ${error.message}`);
+					
+					// Try to mark as skipped in sheet
+					try {
+						const skipUpdateData = sheetMapping.buildUpdateData({
+							status: 'Skipped',
+							error: error.message,
+						});
+						await googleSheets.updateRow(task.rowIndex, skipUpdateData);
+					} catch (updateError) {
+						logger.error(`Failed to update skipped status: ${updateError.message}`);
+					}
+
+					// Force close any open browser
+					try {
+						await browserService.forceClose();
+					} catch (closeError) {
+						// Silent fail
+					}
+
+					this.skippedTasks++;
+					this.failedTasks++;
+					this.consecutiveFailures++;
+
 					if (config.errorHandling.stopOnError) {
 						logger.error('Stopping execution due to error (STOP_ON_ERROR=true)');
 						break;
 					} else {
-						logger.warn('Continuing to next task (STOP_ON_ERROR=false)');
+						logger.warn(`Skipping to next task (consecutive failures: ${this.consecutiveFailures})`);
 					}
 				}
 			}
@@ -564,7 +646,17 @@ class MPCBot {
 		logger.info(`Total tasks: ${this.totalTasks}`);
 		logger.info(`Completed: ${this.completedTasks}`);
 		logger.info(`Failed: ${this.failedTasks}`);
+		if (this.skippedTasks > 0) {
+			logger.info(`Skipped (timeout): ${this.skippedTasks}`);
+		}
 		logger.info(`Duration: ${minutes}m ${seconds}s`);
+		
+		// Success rate
+		if (this.totalTasks > 0) {
+			const successRate = ((this.completedTasks / this.totalTasks) * 100).toFixed(1);
+			logger.info(`Success Rate: ${successRate}%`);
+		}
+		
 		logger.info('');
 		
 		if (this.proxyScheduler) {
@@ -624,16 +716,57 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT (Ctrl+C)'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 // Handle uncaught errors
+// Note: These should rarely trigger as all task errors are now caught in processTask
+// However, we keep them as a safety net for truly unexpected errors
 process.on('unhandledRejection', async (error) => {
-	logger.error(`Unhandled rejection: ${error.message}`);
-	await browserService.forceClose();
-	process.exit(1);
+	logger.error('');
+	logger.error('='.repeat(60));
+	logger.error('UNHANDLED PROMISE REJECTION (Safety Net)');
+	logger.error('='.repeat(60));
+	logger.error(`Error: ${error.message}`);
+	logger.error('Stack:', error.stack);
+	logger.error('');
+	logger.error('This should not happen during normal task processing.');
+	logger.error('All task errors should be caught by the task handler.');
+	logger.error('='.repeat(60));
+	
+	// Try to clean up
+	try {
+		await browserService.forceClose();
+	} catch (e) {
+		// Silent fail
+	}
+	
+	// Log and exit after a delay to allow logs to flush
+	setTimeout(() => {
+		logger.error('Exiting due to unhandled rejection...');
+		process.exit(1);
+	}, 1000);
 });
 
 process.on('uncaughtException', async (error) => {
-	logger.error(`Uncaught exception: ${error.message}`);
-	await browserService.forceClose();
-	process.exit(1);
+	logger.error('');
+	logger.error('='.repeat(60));
+	logger.error('UNCAUGHT EXCEPTION (Safety Net)');
+	logger.error('='.repeat(60));
+	logger.error(`Error: ${error.message}`);
+	logger.error('Stack:', error.stack);
+	logger.error('');
+	logger.error('This indicates a serious issue outside normal task flow.');
+	logger.error('='.repeat(60));
+	
+	// Try to clean up
+	try {
+		await browserService.forceClose();
+	} catch (e) {
+		// Silent fail
+	}
+	
+	// Log and exit after a delay to allow logs to flush
+	setTimeout(() => {
+		logger.error('Exiting due to uncaught exception...');
+		process.exit(1);
+	}, 1000);
 });
 
 // Run the application
