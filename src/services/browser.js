@@ -228,24 +228,35 @@ class BrowserService {
 	}
 
 	/**
-	 * Create a new page from persistent context
+	 * Get or create a page from persistent context
+	 * IMPORTANT: launchPersistentContext already creates a default blank page
+	 * We reuse this page instead of creating a new one (avoids 2 tabs)
 	 * @param {BrowserContext} context - Persistent context (not used, kept for API compatibility)
 	 * @returns {Promise<Page>} - Patchright page instance
 	 */
 	async createPage(context = null) {
 		try {
-			// With launchPersistentContext, the context is already created
-			// Just create a new page directly
 			const actualContext = context || this.context;
 
 			if (!actualContext) {
 				throw new Error('Browser context not initialized. Call launch() first.');
 			}
 
-			// Create page - NO custom settings
-			// Don't add userAgent, viewport, extraHTTPHeaders, etc.
-			// Let patchright and Chrome handle everything naturally
+			// PERFORMANCE FIX: Reuse existing page instead of creating new one
+			// launchPersistentContext automatically creates a blank page
+			// Reusing it prevents opening 2 tabs (empty + target URL)
+			const existingPages = actualContext.pages();
+			
+			if (existingPages.length > 0) {
+				// Reuse the first (default) page
+				const page = existingPages[0];
+				logger.info('✓ Reusing existing browser page (1 tab only)');
+				return page;
+			}
+
+			// Fallback: Create new page if none exists (shouldn't happen with persistent context)
 			const page = await actualContext.newPage();
+			logger.warn('Created new page (no existing pages found)');
 
 			// Patchright automatically provides:
 			// - Runtime.enable bypass (isolated ExecutionContexts)
@@ -256,7 +267,7 @@ class BrowserService {
 
 			return page;
 		} catch (error) {
-			logger.error(`Failed to create page: ${error.message}`);
+			logger.error(`Failed to get page: ${error.message}`);
 			throw error;
 		}
 	}
