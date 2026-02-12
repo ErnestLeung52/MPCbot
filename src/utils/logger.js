@@ -20,18 +20,12 @@ const logFormat = winston.format.combine(
   })
 );
 
-// Create logger instance
+// Create logger instance (file logging only)
+// Console output is now handled by the display utility
 const logger = winston.createLogger({
   level: config.logging.level,
   format: logFormat,
   transports: [
-    // Console transport
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        logFormat
-      )
-    }),
     // File transport for all logs
     new winston.transports.File({
       filename: path.join(config.logging.dir, 'combined.log'),
