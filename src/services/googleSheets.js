@@ -153,58 +153,6 @@ class GoogleSheetsService {
   }
 
   /**
-   * Update a specific cell
-   * @param {number} rowIndex - Row index (0-based data rows)
-   * @param {number} columnIndex - Column index (0-based)
-   * @param {string} value - Value to set
-   * @returns {Promise<void>}
-   */
-  async updateCell(rowIndex, columnIndex, value) {
-    this.ensureInitialized();
-
-    try {
-      const sheetRowNumber = rowIndex + 2; // +2 for header and 1-based indexing
-      const columnLetter = this.columnToLetter(columnIndex);
-      const range = `${this.sheetName}!${columnLetter}${sheetRowNumber}`;
-
-      await this.sheets.spreadsheets.values.update({
-        spreadsheetId: this.spreadsheetId,
-        range,
-        valueInputOption: 'RAW',
-        requestBody: {
-          values: [[value]]
-        }
-      });
-    } catch (error) {
-      logger.error(`Failed to update cell: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Append a new row to the sheet
-   * @param {Array<string>} values - Array of values to append
-   * @returns {Promise<void>}
-   */
-  async appendRow(values) {
-    this.ensureInitialized();
-
-    try {
-      await this.sheets.spreadsheets.values.append({
-        spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A:ZZ`,
-        valueInputOption: 'RAW',
-        requestBody: {
-          values: [values]
-        }
-      });
-    } catch (error) {
-      logger.error(`Failed to append row: ${error.message}`);
-      throw error;
-    }
-  }
-
-  /**
    * Convert column index to letter (0 -> A, 1 -> B, etc.)
    * @param {number} index - Column index (0-based)
    * @returns {string} - Column letter

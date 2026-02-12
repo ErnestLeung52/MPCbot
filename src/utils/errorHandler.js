@@ -50,49 +50,6 @@ class ErrorHandler {
       process.exit(1);
     }
   }
-
-  /**
-   * Classify error type for better debugging
-   * @param {Error} error - The error to classify
-   * @returns {string} - Error type
-   */
-  classifyError(error) {
-    const message = error.message.toLowerCase();
-
-    if (message.includes('timeout') || message.includes('timed out')) {
-      return 'TIMEOUT';
-    } else if (message.includes('navigation') || message.includes('net::')) {
-      return 'NETWORK';
-    } else if (message.includes('selector') || message.includes('element')) {
-      return 'ELEMENT_NOT_FOUND';
-    } else if (message.includes('proxy') || message.includes('econnrefused')) {
-      return 'PROXY_ERROR';
-    } else if (message.includes('detected') || message.includes('blocked')) {
-      return 'DETECTION';
-    } else if (message.includes('frame') || message.includes('iframe')) {
-      return 'IFRAME_ERROR';
-    } else {
-      return 'UNKNOWN';
-    }
-  }
-
-  /**
-   * Wrap async function with error handling
-   * @param {Function} fn - Async function to wrap
-   * @param {Page} page - Playwright page object
-   * @param {number} taskNumber - Current task number
-   * @returns {Function} - Wrapped function
-   */
-  wrapWithErrorHandling(fn, page, taskNumber) {
-    return async (...args) => {
-      try {
-        return await fn(...args);
-      } catch (error) {
-        await this.handleError(error, page, taskNumber);
-        throw error; // Re-throw after handling
-      }
-    };
-  }
 }
 
 module.exports = new ErrorHandler();

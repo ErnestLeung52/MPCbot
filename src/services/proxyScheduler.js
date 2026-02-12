@@ -93,39 +93,11 @@ class ProxyScheduler {
   }
 
   /**
-   * Get current statistics
-   * @returns {Object}
-   */
-  getStats() {
-    return {
-      totalProxies: this.proxies.length,
-      usesPerProxy: this.usesPerProxy,
-      totalTasks: this.totalTasks,
-      totalAllocated: this.totalAllocated,
-      remaining: this.totalTasks - this.totalAllocated,
-      currentCycle: this.currentCycle,
-      usageCount: { ...this.usageCount }
-    };
-  }
-
-  /**
    * Check if there are more proxies available
    * @returns {boolean}
    */
   hasMore() {
     return this.totalAllocated < this.totalTasks;
-  }
-
-  /**
-   * Reset the scheduler to initial state
-   */
-  reset() {
-    this.proxies.forEach((_, index) => {
-      this.usageCount[index] = 0;
-    });
-    this.currentCycle = 0;
-    this.currentProxyIndex = 0;
-    this.totalAllocated = 0;
   }
 
   /**

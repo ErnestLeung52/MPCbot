@@ -385,7 +385,6 @@ MPCbot/
 │   │   └── proxyScheduler.js  # Round-robin proxy allocation
 │   ├── automation/
 │   │   ├── formFiller.js      # Form filling automation
-│   │   ├── iframeExtractor.js # Iframe data extraction
 │   │   └── humanBehavior.js   # Human-like behavior utilities
 │   └── utils/
 │       ├── logger.js          # Winston logger setup

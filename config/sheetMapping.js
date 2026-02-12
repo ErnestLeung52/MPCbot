@@ -51,15 +51,6 @@ const COLUMN_MAPPINGS = {
 // ============================================================================
 
 /**
- * Get the sheet column name for a given field
- * @param {string} fieldKey - Field key (e.g., 'firstName')
- * @returns {string} - Sheet column name
- */
-function getColumnName(fieldKey) {
-	return COLUMN_MAPPINGS[fieldKey];
-}
-
-/**
  * Extract data from row using column mappings
  * @param {Array<string>} rowData - Row data array
  * @param {Array<string>} headers - Column headers array
@@ -135,7 +126,6 @@ module.exports = {
 	COLUMN_MAPPINGS,
 	
 	// Helper functions
-	getColumnName,
 	extractRowData,
 	buildUpdateData,
 };

@@ -146,23 +146,6 @@ class ProxyManager {
   }
 
   /**
-   * Get a random proxy
-   * @returns {Object|null} - Proxy configuration object or null if no proxies
-   */
-  getRandom() {
-    if (!this.loaded) {
-      this.loadProxies();
-    }
-
-    if (this.proxies.length === 0) {
-      return null;
-    }
-
-    const randomIndex = Math.floor(Math.random() * this.proxies.length);
-    return this.proxies[randomIndex];
-  }
-
-  /**
    * Get proxy at specific index
    * @param {number} index - Index of proxy to get
    * @returns {Object|null} - Proxy configuration object or null
@@ -191,56 +174,6 @@ class ProxyManager {
     return this.proxies.length;
   }
 
-  /**
-   * Reset the proxy rotation to start from beginning
-   * @returns {void}
-   */
-  reset() {
-    this.currentIndex = 0;
-  }
-
-  /**
-   * Mask proxy URL for logging (hide credentials)
-   * @param {string} proxyUrl - Full proxy URL
-   * @returns {string} - Masked URL
-   * @private
-   */
-  maskProxyUrl(proxyUrl) {
-    try {
-      const url = new URL(proxyUrl);
-      if (url.username || url.password) {
-        return `${url.protocol}//*****:*****@${url.host}`;
-      }
-      return proxyUrl;
-    } catch {
-      return proxyUrl;
-    }
-  }
-
-  /**
-   * Format proxy for Playwright/Patchright
-   * @param {Object} proxy - Proxy object
-   * @returns {Object|null} - Formatted proxy config for browser launch
-   */
-  formatForBrowser(proxy) {
-    if (!proxy) {
-      return null;
-    }
-
-    const config = {
-      server: proxy.server
-    };
-
-    if (proxy.username) {
-      config.username = proxy.username;
-    }
-
-    if (proxy.password) {
-      config.password = proxy.password;
-    }
-
-    return config;
-  }
 }
 
 module.exports = new ProxyManager();
