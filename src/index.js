@@ -16,6 +16,7 @@ const proxyManager = require('./services/proxyManager');
 const ProxyScheduler = require('./services/proxyScheduler');
 const browserService = require('./services/browser');
 const formFiller = require('./automation/formFiller');
+const dataSanitizer = require('./utils/dataSanitizer');
 
 class MPCBot {
 	constructor() {
@@ -308,7 +309,11 @@ class MPCBot {
 
 			// Extract row data using sheet mappings
 			const extractedData = sheetMapping.extractRowData(rowData, headers);
-			const redeemCode = extractedData.redeemCode;
+			
+			// Sanitize the extracted data
+			const sanitizedData = dataSanitizer.sanitizeFormData(extractedData);
+			
+			const redeemCode = sanitizedData.redeemCode;
 
 			if (!redeemCode) {
 				throw new Error('No redeem code found in row data');
@@ -340,15 +345,15 @@ class MPCBot {
 			logger.info('Step 2: Filling and submitting registration form...');
 			
 			const formData = {
-				firstName: extractedData.firstName,
-				lastName: extractedData.lastName,
-				streetAddress: extractedData.streetAddress,
-				apartment: extractedData.apartment,
-				city: extractedData.city,
-				state: extractedData.state,
-				zipCode: extractedData.zipCode,
-				phoneNumber: extractedData.phone,
-				emailAddress: extractedData.email,
+				firstName: sanitizedData.firstName,
+				lastName: sanitizedData.lastName,
+				streetAddress: sanitizedData.streetAddress,
+				apartment: sanitizedData.apartment,
+				city: sanitizedData.city,
+				state: sanitizedData.state,
+				zipCode: sanitizedData.zipCode,
+				phoneNumber: sanitizedData.phone,
+				emailAddress: sanitizedData.email,
 				addressVerificationChoice: config.automation.addressVerification
 			};
 
