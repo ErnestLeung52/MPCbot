@@ -79,30 +79,11 @@ class Display {
 	}
 
 	/**
-	 * Show task filtering summary
+	 * Show task start info
 	 */
-	showTaskFilteringSummary(stats) {
+	showTaskStartInfo(taskCount, startRow) {
 		console.log();
-		this.showHeader('Task Filtering Summary');
-		this.info(`  Total rows in sheet: ${chalk.bold(stats.total)}`);
-		this.info(`  Valid tasks to process: ${chalk.green.bold(stats.valid)}`);
-
-		if (stats.skippedEmpty > 0) {
-			this.info(`  ${chalk.gray('Skipped - Empty rows:')} ${stats.skippedEmpty}`);
-		}
-		if (stats.skippedNoCode > 0) {
-			this.info(`  ${chalk.gray('Skipped - No redeem code:')} ${stats.skippedNoCode}`);
-		}
-		if (stats.skippedInvalidCode > 0) {
-			this.info(`  ${chalk.gray('Skipped - Invalid code length:')} ${stats.skippedInvalidCode}`);
-		}
-		if (stats.skippedAlreadyProcessed > 0) {
-			this.info(`  ${chalk.gray('Skipped - Already processed:')} ${stats.skippedAlreadyProcessed}`);
-		}
-		if (stats.skippedMissingData > 0) {
-			this.info(`  ${chalk.gray('Skipped - Missing required data:')} ${stats.skippedMissingData}`);
-		}
-		console.log(chalk.gray('═'.repeat(60)));
+		this.info(`Processing ${chalk.bold(taskCount)} task(s) starting from row ${chalk.bold(startRow)}`);
 		console.log();
 	}
 
@@ -131,17 +112,18 @@ class Display {
 	}
 
 	/**
-	 * Show task header
+	 * Show persistent task completion
 	 */
-	showTaskHeader(taskNum, totalTasks, taskInfo) {
-		console.log();
-		console.log(chalk.cyan('═'.repeat(60)));
-		console.log(chalk.cyan.bold(`TASK ${taskNum}/${totalTasks}`));
-		this.showDivider();
-		this.info(`  Sheet Row: ${chalk.bold(taskInfo.sheetRowNumber)}`);
-		this.info(`  Email: ${chalk.bold(taskInfo.email)}`);
-		this.info(`  Redeem Code: ${chalk.bold(taskInfo.redeemCode)}`);
-		console.log(chalk.cyan('═'.repeat(60)));
+	showTaskSuccess(row, code, email, proxyInfo) {
+		let message = chalk.green(`[Row ${chalk.bold(row)}] - Redeemed ${chalk.bold(code)} with ${chalk.bold(email)}`);
+		
+		if (proxyInfo) {
+			message += chalk.green(` - Proxy #${chalk.bold(proxyInfo.index)} - Use ${chalk.bold(proxyInfo.usage + '/' + proxyInfo.max)}`);
+		} else {
+			message += chalk.green(` - ${chalk.bold('Direct IP')}`);
+		}
+		
+		console.log(chalk.green('✔') + ' ' + message);
 	}
 
 	/**
@@ -154,21 +136,20 @@ class Display {
 	}
 
 	/**
-	 * Show card data extracted
+	 * Show task failed
 	 */
-	showCardData(cardData) {
-		this.success('Card data extracted and saved:');
-		if (cardData.cardNumber) this.info(`  Card: ${chalk.bold(cardData.cardNumber)}`);
-		if (cardData.exp) this.info(`  Exp: ${chalk.bold(cardData.exp)}`);
-		if (cardData.cvv) this.info(`  CVV: ${chalk.bold(cardData.cvv)}`);
-	}
-
-	/**
-	 * Show task complete message
-	 */
-	showTaskComplete(taskNum, totalTasks, duration) {
-		const seconds = (duration / 1000).toFixed(1);
-		this.success(`Task ${taskNum}/${totalTasks} completed in ${chalk.bold(seconds + 's')}`);
+	showTaskFailed(row, code, email, proxyInfo, error) {
+		let message = chalk.red(`[Row ${chalk.bold(row)}] - Failed ${chalk.bold(code)} with ${chalk.bold(email)}`);
+		
+		if (proxyInfo) {
+			message += chalk.red(` - Proxy #${chalk.bold(proxyInfo.index)} - Use ${chalk.bold(proxyInfo.usage + '/' + proxyInfo.max)}`);
+		} else {
+			message += chalk.red(` - ${chalk.bold('Direct IP')}`);
+		}
+		
+		message += chalk.red(` - ${error}`);
+		
+		console.log(chalk.red('✖') + ' ' + message);
 	}
 
 	/**
@@ -207,36 +188,7 @@ class Display {
 		console.log(chalk.cyan('═'.repeat(60)));
 	}
 
-	/**
-	 * Show continuous workflow configuration
-	 */
-	showWorkflowConfig(usageSummary) {
-		console.log();
-		this.showHeader('CONTINUOUS WORKFLOW CONFIGURATION');
-		this.info(usageSummary);
-		console.log(chalk.cyan('═'.repeat(60)));
-		console.log();
-	}
 
-	/**
-	 * Show task limit warning
-	 */
-	showTaskLimitWarning(validTasks, tasksToProcess, skipped, maxTasks) {
-		console.log();
-		console.log(chalk.yellow('═'.repeat(60)));
-		console.log(chalk.yellow.bold('TASK LIMIT REACHED'));
-		console.log(chalk.yellow('═'.repeat(60)));
-		this.warn(`Valid tasks found: ${validTasks}`);
-		this.warn(`Tasks to process: ${tasksToProcess}`);
-		this.warn(`Tasks skipped: ${skipped}`);
-		console.log();
-		this.warn(`Reason: Limited by proxy capacity (${maxTasks} max tasks)`);
-		this.info(chalk.yellow('To process more tasks, either:'));
-		this.info(chalk.yellow('  1. Add more proxies to config/proxies.json'));
-		this.info(chalk.yellow('  2. Increase PROXY_USES_PER_CYCLE in .env'));
-		console.log(chalk.yellow('═'.repeat(60)));
-		console.log();
-	}
 
 	/**
 	 * Show max consecutive failures error

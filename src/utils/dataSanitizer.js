@@ -39,7 +39,7 @@ function sanitizeFirstName(firstName) {
  * Rules:
  * - Only letters (A-Z, a-z, accented characters), spaces, hyphens (-), and apostrophes (')
  * - Maximum 21 characters
- * - Strategy: If last name is long or contains multiple words, use the longest word
+ * - Strategy: ALWAYS use only the longest word (to handle middle names and compound names)
  * 
  * @param {string} lastName - Raw last name from sheet
  * @returns {string} - Sanitized last name
@@ -54,22 +54,21 @@ function sanitizeLastName(lastName) {
 	// Trim whitespace
 	sanitized = sanitized.trim();
 	
-	// If longer than 21 characters, extract the longest word
+	// ALWAYS extract the longest word if there are multiple words separated by spaces
+	// This handles cases like "Sheppard Aluya" (middle name + last name)
+	// We only split on spaces, not hyphens or apostrophes (which are part of compound names)
+	const words = sanitized.split(/\s+/).filter(word => word.length > 0);
+	
+	if (words.length > 1) {
+		// Multiple words detected - use the longest one
+		sanitized = words.reduce((longest, current) => 
+			current.length > longest.length ? current : longest
+		);
+	}
+	
+	// Truncate if the result is still over 21 characters
 	if (sanitized.length > 21) {
-		// Split by spaces, hyphens, or apostrophes to get individual words
-		const words = sanitized.split(/[\s'\-]+/).filter(word => word.length > 0);
-		
-		if (words.length > 0) {
-			// Find the longest word
-			sanitized = words.reduce((longest, current) => 
-				current.length > longest.length ? current : longest
-			);
-			
-			// Still truncate if the longest word is over 21 chars
-			if (sanitized.length > 21) {
-				sanitized = sanitized.substring(0, 21).trim();
-			}
-		}
+		sanitized = sanitized.substring(0, 21).trim();
 	}
 	
 	return sanitized;

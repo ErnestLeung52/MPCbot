@@ -43,16 +43,20 @@ const logger = winston.createLogger({
 });
 
 // Add helper methods
-logger.logTaskStart = (taskNumber, totalTasks) => {
-  logger.info(`Starting task ${taskNumber}/${totalTasks}`);
+logger.separator = () => {
+  logger.info('---');
 };
 
-logger.logTaskComplete = (taskNumber, totalTasks, duration) => {
-  logger.info(`Task ${taskNumber}/${totalTasks} completed successfully in ${duration}ms`);
+logger.logTaskStart = (taskNumber, maxTasks, row, email, code) => {
+  logger.info(`Task ${taskNumber}/${maxTasks} | Row ${row} | ${email} | ${code}`);
 };
 
-logger.logTaskError = (taskNumber, totalTasks, error) => {
-  logger.error(`Task ${taskNumber}/${totalTasks} failed: ${error.message}`);
+logger.logTaskSuccess = (code, email, row, cardNumber) => {
+  logger.info(`SUCCESS: Redeemed ${code} with ${email} for row ${row} | Card: ${cardNumber}`);
+};
+
+logger.logTaskFailure = (code, email, row, error) => {
+  logger.error(`FAILED: ${code} with ${email} for row ${row} | Error: ${error}`);
 };
 
 module.exports = logger;

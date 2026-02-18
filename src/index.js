@@ -42,9 +42,11 @@ class MPCBot {
 			display.showBanner();
 			
 			// Initialize Google Sheets
-			const sheetsSpinner = display.createSpinner('Initializing Google Sheets...');
+			const sheetsSpinner = display.createSpinner('Connecting to Google Sheets...');
 			await googleSheets.initialize();
-			sheetsSpinner.succeed('Google Sheets connected');
+			const sheetName = config.googleSheets.sheetName || 'Sheet';
+			sheetsSpinner.succeed(`Google Sheets connected: ${chalk.bold(sheetName)}`);
+			logger.info(`✓ Connected to Google Sheets: "${sheetName}"`);
 
 			// Load proxies
 			const proxySpinner = display.createSpinner('Loading proxies...');
@@ -55,11 +57,13 @@ class MPCBot {
 			if (proxyCount === 0) {
 				proxySpinner.warn('No proxies loaded');
 				display.showNoProxyWarning();
+				logger.warn('No proxies loaded - using direct IP for all tasks');
 				
 				// No proxy scheduler in this case
 				this.proxyScheduler = null;
 			} else {
 				proxySpinner.succeed(`Loaded ${proxyCount} proxies`);
+				logger.info(`✓ Loaded ${proxyCount} proxy/proxies`);
 				
 				// Get all proxies for the scheduler
 				const proxies = [];
@@ -77,10 +81,13 @@ class MPCBot {
 					usesPerProxy: usesPerProxy,
 					maxTasks: this.proxyScheduler.getTotalTasks()
 				});
+				
+				logger.info(`Proxy config: ${proxyCount} proxies × ${usesPerProxy} uses = ${this.proxyScheduler.getTotalTasks()} max tasks`);
 			}
 
 			display.newLine();
 			display.success('Initialization complete');
+			logger.info('=== INITIALIZATION COMPLETE ===');
 		} catch (error) {
 			display.error(`Initialization failed: ${error.message}`);
 			logger.error(`Initialization failed: ${error.message}`);
@@ -131,9 +138,6 @@ class MPCBot {
 			logger.error(`Column "${sheetMapping.COLUMN_MAPPINGS.email}" not found in sheet`);
 			return validTasks;
 		}
-
-		const scanSpinner = display.createSpinner('Scanning rows for valid tasks...');
-		scanSpinner.start();
 
 		// Iterate through all rows from top to bottom
 		for (let i = 0; i < rows.length; i++) {
@@ -195,12 +199,6 @@ class MPCBot {
 			stats.valid++;
 		}
 
-		// Stop scanning spinner and show summary
-		scanSpinner.succeed(`Found ${stats.valid} valid tasks`);
-		
-		// Log filtering summary
-		display.showTaskFilteringSummary(stats);
-		
 		return validTasks;
 	}
 
@@ -238,8 +236,10 @@ class MPCBot {
 		let page = null;
 
 		try {
-			// Update status to "In Progress" at the start
-			const statusSpinner = display.createSpinner('Updating task status...');
+			// Add separator for task in logs
+			logger.separator();
+			
+			// Update status to "In Progress" at the start (silent)
 			try {
 				await googleSheets.updateRow(
 					rowIndex,
@@ -247,14 +247,13 @@ class MPCBot {
 						status: 'In Progress',
 					}),
 				);
-				statusSpinner.succeed('Status updated to In Progress');
 			} catch (statusError) {
-				statusSpinner.warn(`Could not update status: ${statusError.message}`);
 				logger.warn(`Could not update status to In Progress: ${statusError.message}`);
 			}
 
 			// Get next proxy from scheduler (if using proxies)
 			let proxy = null;
+			let proxyInfo = null;
 			
 			if (this.proxyScheduler) {
 				const proxyAllocation = this.proxyScheduler.getNext();
@@ -266,16 +265,16 @@ class MPCBot {
 				proxy = proxyAllocation.proxy;
 				const { proxyIndex, currentUsage, remaining } = proxyAllocation;
 
-				// Log proxy usage info
-				display.showProxyUsage({
-					index: proxyIndex,
-					current: currentUsage,
+				// Store proxy info for display
+				proxyInfo = {
+					index: proxyIndex + 1,
+					usage: currentUsage,
 					max: config.proxy.usesPerProxy,
 					remaining: remaining
-				});
-			} else {
-				// Running without proxies
-				display.info('Running without proxy (using direct IP)');
+				};
+
+				// Log proxy usage to file only
+				logger.info(`Using Proxy #${proxyInfo.index} (Usage: ${proxyInfo.usage}/${proxyInfo.max}, Remaining: ${proxyInfo.remaining})`);
 			}
 
 			// Optional: Completely wipe browser profile before launch (if configured)
@@ -285,10 +284,8 @@ class MPCBot {
 
 			// Launch browser with proxy (or without if none available)
 			// NOTE: launch() automatically deletes persistent data files before starting
-			const browserSpinner = display.createSpinner('Launching browser...');
 			browser = await browserService.launch(proxy);
 			page = await browserService.createPage(browser);
-			browserSpinner.succeed('Browser launched');
 
 			// Extract row data using sheet mappings
 			const extractedData = sheetMapping.extractRowData(rowData, headers);
@@ -297,19 +294,29 @@ class MPCBot {
 			const sanitizedData = dataSanitizer.sanitizeFormData(extractedData);
 			
 			const redeemCode = sanitizedData.redeemCode;
+			const email = sanitizedData.email;
+			const sheetRow = rowIndex + 2; // Convert to actual sheet row number
 
 			if (!redeemCode) {
 				throw new Error('No redeem code found in row data');
 			}
 
+			// Calculate display task number (current task / max capacity)
+			const maxCapacity = this.proxyScheduler ? this.proxyScheduler.getTotalTasks() : this.totalTasks;
+			const currentTaskNum = this.completedTasks + this.failedTasks + 1;
+
+			// Log task start to file
+			logger.logTaskStart(currentTaskNum, maxCapacity, sheetRow, email, redeemCode);
+
+			// Create a single task spinner
+			const taskSpinner = display.createSpinner(`Redeeming code ${chalk.bold(redeemCode)}...`);
+
 			// Step 1: Navigate with redeem code and validate
-			const navSpinner = display.createSpinner(`Navigating with redeem code: ${redeemCode}...`);
 			const validation = await formFiller.navigateWithRedeemCode(page, config.targetUrl, redeemCode);
 
-			// Step 2: Check if redeem code is valid
+			// Check if redeem code is valid
 			if (!validation.success) {
-				navSpinner.fail('Redeem code validation failed');
-				display.error(validation.message);
+				taskSpinner.fail(`Invalid code`);
 				logger.error(`Redeem code validation failed: ${validation.message}`);
 
 				// Update sheet with invalid code status
@@ -324,11 +331,10 @@ class MPCBot {
 				throw new Error(`Invalid redeem code: ${validation.message}`);
 			}
 
-			navSpinner.succeed('Redeem code validated');
+			// Update spinner: Code validated
+			taskSpinner.text = `Redeeming ${chalk.bold(redeemCode)}: Filling form...`;
 
 			// Step 2: Fill and submit registration form
-			const formSpinner = display.createSpinner('Filling registration form...');
-			
 			const formData = {
 				firstName: sanitizedData.firstName,
 				lastName: sanitizedData.lastName,
@@ -347,36 +353,38 @@ class MPCBot {
 			const missingFields = requiredFields.filter(field => !formData[field]);
 
 			if (missingFields.length > 0) {
+				taskSpinner.fail('Missing required fields');
 				throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
 			}
 
 			// Step 3: Fill form and extract card data
+			taskSpinner.text = `Redeeming ${chalk.bold(redeemCode)}: Activating card...`;
 			const cardData = await formFiller.fillRegistrationForm(page, formData);
 
 			// Check if card data was extracted
 			if (!cardData) {
-				formSpinner.fail('Card activation failed');
+				taskSpinner.fail('Card activation failed');
 				throw new Error('Card activation failed - no card data received');
 			}
-			
-			formSpinner.succeed('Form submitted successfully');
+
+			// Update spinner: Saving to sheet
+			taskSpinner.text = `Redeeming ${chalk.bold(redeemCode)}: Updating Google Sheet row ${sheetRow}...`;
 
 			// Update Google Sheet with results
-			const updateSpinner = display.createSpinner('Saving results to Google Sheets...');
 			const updateData = sheetMapping.buildUpdateData({
 				status: 'Success',
 				extractedData: cardData, // Contains: cardNumber, exp, cvv
 			});
 
 			await googleSheets.updateRow(rowIndex, updateData);
-			updateSpinner.succeed('Results saved');
-
-			// Show card data
-			display.showCardData(cardData);
-
-			// Calculate duration
-			const duration = Date.now() - startTime;
-			display.showTaskComplete(taskNumber, totalRows, duration);
+			
+			// Stop spinner and show success
+			taskSpinner.stop();
+			display.showTaskSuccess(sheetRow, redeemCode, email, proxyInfo);
+			
+			// Log success to file
+			logger.logTaskSuccess(redeemCode, email, sheetRow, cardData.cardNumber);
+			logger.info(`Card details: ${cardData.cardNumber} | Exp: ${cardData.exp} | CVV: ${cardData.cvv}`);
 
 			// Close browser (unless keepOpen is enabled for testing)
 			// NOTE: Persistent data files will be deleted on next launch
@@ -392,6 +400,7 @@ class MPCBot {
 			this.completedTasks++;
 			this.consecutiveFailures = 0; // Reset consecutive failure counter on success
 
+			const duration = Date.now() - startTime;
 			return {
 				success: true,
 				duration,
@@ -400,6 +409,19 @@ class MPCBot {
 		} catch (error) {
 			// Handle error
 			await errorHandler.handleError(error, page, taskNumber);
+
+			// Get row data for error display
+			const extractedData = sheetMapping.extractRowData(rowData, headers);
+			const sanitizedData = dataSanitizer.sanitizeFormData(extractedData);
+			const redeemCode = sanitizedData.redeemCode || 'N/A';
+			const email = sanitizedData.email || 'N/A';
+			const sheetRow = rowIndex + 2;
+
+			// Show failure message (proxyInfo should be available from outer scope)
+			display.showTaskFailed(sheetRow, redeemCode, email, proxyInfo, error.message);
+			
+			// Log failure to file
+			logger.logTaskFailure(redeemCode, email, sheetRow, error.message);
 
 			// Try to update sheet with error status
 			try {
@@ -456,28 +478,14 @@ class MPCBot {
 			// If no proxies, process all valid tasks (no limit)
 			const maxTasks = this.proxyScheduler ? this.proxyScheduler.getTotalTasks() : Infinity;
 			
-			if (this.proxyScheduler) {
-				display.showWorkflowConfig(this.proxyScheduler.getUsageSummary());
-			} else {
-				display.newLine();
-				display.showHeader('RUNNING WITHOUT PROXIES');
-				display.info('  All tasks will use your direct IP address');
-				display.info('  No task limit applied');
-				console.log(chalk.cyan('═'.repeat(60)));
-				display.newLine();
-			}
-
 			// Fetch all rows from sheet
-			const fetchSpinner = display.createSpinner('Fetching data from Google Sheets...');
 			const rows = await googleSheets.fetchRows();
 			const headers = await googleSheets.getHeaders();
 
 			if (rows.length === 0) {
-				fetchSpinner.warn('No data rows found in sheet');
+				display.warn('No data rows found in sheet');
 				return;
 			}
-
-			fetchSpinner.succeed(`Found ${rows.length} total row(s) in sheet`);
 
 			// Filter valid tasks based on Status and RedeemCode criteria
 			const validTasks = this.filterValidTasks(rows, headers);
@@ -499,12 +507,20 @@ class MPCBot {
 
 			this.totalTasks = tasksToProcess.length;
 
-			if (skippedTasks > 0 && this.proxyScheduler) {
-				display.showTaskLimitWarning(validTasks.length, this.totalTasks, skippedTasks, maxTasks);
+			// Calculate max tasks based on proxy configuration
+			const maxTasksForDisplay = this.proxyScheduler ? this.proxyScheduler.getTotalTasks() : this.totalTasks;
+
+			// Log to file what we're processing
+			if (this.proxyScheduler) {
+				logger.info(`Starting batch: ${this.totalTasks} tasks | Max capacity: ${maxTasksForDisplay} (${proxyManager.getCount()} proxies × ${config.proxy.usesPerProxy} uses)`);
+			} else {
+				logger.info(`Starting batch: ${this.totalTasks} tasks | No proxy limit`);
 			}
 
-			display.info(`Starting processing of ${chalk.bold(this.totalTasks)} task(s)...`);
-			display.newLine();
+			// Show what we're about to process
+			if (tasksToProcess.length > 0) {
+				display.showTaskStartInfo(this.totalTasks, tasksToProcess[0].sheetRowNumber);
+			}
 
 			// Process each valid task
 			for (let taskNum = 0; taskNum < tasksToProcess.length; taskNum++) {
@@ -523,13 +539,6 @@ class MPCBot {
 					logger.error(`Maximum consecutive failures reached: ${this.consecutiveFailures}/${config.errorHandling.maxConsecutiveFailures}`);
 					break;
 				}
-
-				// Show task header
-				display.showTaskHeader(taskNum + 1, this.totalTasks, {
-					sheetRowNumber: task.sheetRowNumber,
-					email: task.email,
-					redeemCode: task.redeemCode
-				});
 
 				try {
 					// Process task with timeout wrapper
@@ -590,6 +599,8 @@ class MPCBot {
 			}
 
 			// Print summary
+			logger.separator();
+			logger.info('=== BATCH COMPLETED ===');
 			this.printSummary();
 		} catch (error) {
 			display.error(`Fatal error: ${error.message}`);
@@ -604,7 +615,28 @@ class MPCBot {
 	 */
 	printSummary() {
 		const totalDuration = Date.now() - this.startTime;
+		const minutes = Math.floor(totalDuration / 60000);
+		const seconds = Math.floor((totalDuration % 60000) / 1000);
 
+		// Log summary to file
+		logger.info(`Total tasks: ${this.totalTasks}`);
+		logger.info(`Completed: ${this.completedTasks}`);
+		logger.info(`Failed: ${this.failedTasks}`);
+		if (this.skippedTasks > 0) {
+			logger.info(`Skipped: ${this.skippedTasks}`);
+		}
+		logger.info(`Duration: ${minutes}m ${seconds}s`);
+		
+		if (this.totalTasks > 0) {
+			const successRate = ((this.completedTasks / this.totalTasks) * 100).toFixed(1);
+			logger.info(`Success Rate: ${successRate}%`);
+		}
+
+		if (this.proxyScheduler) {
+			logger.info(this.proxyScheduler.getUsageSummary());
+		}
+
+		// Display summary on console
 		display.showExecutionSummary({
 			totalTasks: this.totalTasks,
 			completed: this.completedTasks,
