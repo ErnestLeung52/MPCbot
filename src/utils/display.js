@@ -80,6 +80,8 @@ class Display {
 				collapseSubtasks: false,
 				showSubtasks: true,
 				suffixSkips: false,
+				persistentOutput: true,
+				collapseErrors: false,
 			}
 		});
 	}

@@ -410,12 +410,15 @@ class MPCBot {
 
 			await googleSheets.updateRow(rowIndex, updateData);
 			
-			// Update final progress
-			if (listrTask) listrTask.output = `✓ Successfully retrieved ${cardData.cardNumber}`;
-			
-			// Log success to file
-			logger.logTaskSuccess(redeemCode, email, sheetRow, cardData.cardNumber);
-			logger.info(`Card details: ${cardData.cardNumber} | Exp: ${cardData.exp} | CVV: ${cardData.cvv}`);
+		// Update the task title so the final state persists in the Listr2 display after completion
+		if (listrTask) {
+			listrTask.title = `Row ${sheetRow} | ${email} | Card: ${cardData.cardNumber}`;
+			listrTask.output = `Exp: ${cardData.exp} | CVV: ${cardData.cvv}`;
+		}
+
+		// Log success to file
+		logger.logTaskSuccess(redeemCode, email, sheetRow, cardData.cardNumber);
+		logger.info(`Card details: ${cardData.cardNumber} | Exp: ${cardData.exp} | CVV: ${cardData.cvv}`);
 
 			// Close browser (unless keepOpen is enabled for testing)
 			// NOTE: Persistent data files will be deleted on next launch
@@ -449,11 +452,14 @@ class MPCBot {
 			const email = sanitizedData.email || 'N/A';
 			const sheetRow = rowIndex + 2;
 
-			// Update listr progress with error
-			if (listrTask) listrTask.output = `✖ ${error.message}`;
-			
-			// Log failure to file
-			logger.logTaskFailure(redeemCode, email, sheetRow, error.message);
+		// Update the task title and output so the failure state persists in the Listr2 display
+		if (listrTask) {
+			listrTask.title = `Row ${sheetRow} | ${email} | Failed`;
+			listrTask.output = error.message;
+		}
+
+		// Log failure to file
+		logger.logTaskFailure(redeemCode, email, sheetRow, error.message);
 
 			// Try to update sheet with error status
 			try {
