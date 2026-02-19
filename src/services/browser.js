@@ -231,6 +231,23 @@ class BrowserService {
 
 			const context = await chromium.launchPersistentContext(userDataDir, launchOptions);
 			this.contexts[slot] = context;
+
+			// Guard against Chrome spontaneously opening extra tabs (extension pages,
+			// background pages, New Tab, etc.). Any page that opens after the initial
+			// blank one is closed immediately so the bot always works with exactly one tab.
+			context.on('page', () => {
+				setImmediate(async () => {
+					try {
+						const pages = context.pages();
+						for (let i = 1; i < pages.length; i++) {
+							await pages[i].close().catch(() => {});
+						}
+					} catch {
+						// Ignore — context may already be closing
+					}
+				});
+			});
+
 			return context;
 		} catch (error) {
 			logger.error(`Failed to launch browser: ${error.message}`);
@@ -253,30 +270,24 @@ class BrowserService {
 				throw new Error('Browser context not initialized. Call launch() first.');
 			}
 
-			// PERFORMANCE FIX: Reuse existing page instead of creating new one
-			// launchPersistentContext automatically creates a blank page
-			// Reusing it prevents opening 2 tabs (empty + target URL)
+			// launchPersistentContext always opens exactly one blank page.
+			// Close any extras that Chrome may have opened (extension pages, NTP, etc.)
+			// then return the single working page.
 			const existingPages = actualContext.pages();
-			
-			if (existingPages.length > 0) {
-				// Reuse the first (default) page
-				const page = existingPages[0];
-				logger.info('✓ Reusing existing browser page (1 tab only)');
-				return page;
+
+			// Close any pages beyond the first one
+			for (let i = 1; i < existingPages.length; i++) {
+				await existingPages[i].close().catch(() => {});
 			}
 
-			// Fallback: Create new page if none exists (shouldn't happen with persistent context)
-			const page = await actualContext.newPage();
-			logger.warn('Created new page (no existing pages found)');
+			if (existingPages.length > 0) {
+				logger.info('✓ Reusing existing browser page (1 tab only)');
+				return existingPages[0];
+			}
 
-			// Patchright automatically provides:
-			// - Runtime.enable bypass (isolated ExecutionContexts)
-			// - Console.enable bypass (Console API disabled)
-			// - navigator.webdriver removed (--disable-blink-features=AutomationControlled)
-			// - All command flag leaks patched
-			// - Closed Shadow DOM access
-
-			return page;
+			// Fallback: create a page if none exists (edge case)
+			logger.warn('No existing page found — creating new page');
+			return await actualContext.newPage();
 		} catch (error) {
 			logger.error(`Failed to get page: ${error.message}`);
 			throw error;

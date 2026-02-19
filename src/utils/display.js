@@ -2,76 +2,105 @@ const chalk = require('chalk');
 const figlet = require('figlet');
 const { Listr } = require('listr2');
 
-/**
- * Display utility for beautiful terminal output
- * Handles all console output with colors, spinners, and formatting
- */
+const DIM = chalk.gray('·');
+const PIPE = chalk.gray('│');
+
 class Display {
-	/**
-	 * Show ASCII art banner at startup
-	 */
 	showBanner() {
 		const banner = figlet.textSync('MPCbot', {
 			font: 'Standard',
 			horizontalLayout: 'default',
 			verticalLayout: 'default',
 		});
-
 		console.log(chalk.cyan(banner));
-		console.log(chalk.gray('   Built by Onyx Engineering'));
+		console.log(chalk.dim('  Built by Onyx Engineering'));
 		console.log();
 	}
 
-	/**
-	 * Show a section header with separator
-	 */
-	showHeader(text) {
-		console.log();
-		console.log(chalk.cyan.bold(text));
-		console.log(chalk.gray('═'.repeat(60)));
-	}
+	// ─── primitives ────────────────────────────────────────────────────────────
 
-	/**
-	 * Show a subsection divider
-	 */
-	showDivider() {
-		console.log(chalk.gray('─'.repeat(60)));
-	}
-
-	/**
-	 * Show info message (white text)
-	 */
 	info(message) {
 		console.log(chalk.white(message));
 	}
 
-	/**
-	 * Show success message with checkmark
-	 */
 	success(message) {
-		console.log(chalk.green('✔') + ' ' + chalk.green(message));
+		console.log(chalk.green('✔') + '  ' + chalk.green(message));
 	}
 
-	/**
-	 * Show error message with X
-	 */
 	error(message) {
-		console.log(chalk.red('✖') + ' ' + chalk.red(message));
+		console.log(chalk.red('✖') + '  ' + chalk.red(message));
 	}
 
-	/**
-	 * Show warning message with warning symbol
-	 */
 	warn(message) {
-		console.log(chalk.yellow('⚠') + ' ' + chalk.yellow(message));
+		console.log(chalk.yellow('⚠') + '  ' + chalk.yellow(message));
 	}
 
-	/**
-	 * Create a Listr2 task runner for concurrent tasks
-	 * @param {Array} tasks - Array of task configurations
-	 * @param {number} concurrent - Number of concurrent tasks
-	 * @returns {Listr} Listr2 instance
-	 */
+	newLine() {
+		console.log();
+	}
+
+	// ─── section header ─────────────────────────────────────────────────────────
+
+	showHeader(text) {
+		console.log();
+		console.log(chalk.cyan.bold(text));
+		console.log(chalk.gray('─'.repeat(48)));
+	}
+
+	showDivider() {
+		console.log(chalk.gray('─'.repeat(48)));
+	}
+
+	// ─── spinner ────────────────────────────────────────────────────────────────
+
+	createSpinner(text) {
+		const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+		let frameIndex = 0;
+		let currentText = text;
+		let isRunning = false;
+		let interval;
+
+		const spinner = {
+			start() {
+				isRunning = true;
+				process.stdout.write('\n');
+				interval = setInterval(() => {
+					if (isRunning) {
+						process.stdout.write(`\r  ${chalk.cyan(frames[frameIndex])} ${chalk.dim(currentText)}`);
+						frameIndex = (frameIndex + 1) % frames.length;
+					}
+				}, 80);
+				return this;
+			},
+			succeed(msg) {
+				this.stop();
+				process.stdout.write(`\r  ${chalk.green('✔')} ${chalk.white(msg)}\n`);
+			},
+			fail(msg) {
+				this.stop();
+				process.stdout.write(`\r  ${chalk.red('✖')} ${chalk.red(msg)}\n`);
+			},
+			warn(msg) {
+				this.stop();
+				process.stdout.write(`\r  ${chalk.yellow('⚠')} ${chalk.yellow(msg)}\n`);
+			},
+			stop() {
+				isRunning = false;
+				if (interval) {
+					clearInterval(interval);
+					process.stdout.write('\r\x1b[K');
+				}
+			},
+			set text(value) {
+				currentText = value;
+			},
+		};
+
+		return spinner.start();
+	}
+
+	// ─── listr2 task runner ──────────────────────────────────────────────────────
+
 	createTaskRunner(tasks, concurrent = 3) {
 		return new Listr(tasks, {
 			concurrent,
@@ -80,210 +109,127 @@ class Display {
 				collapseSubtasks: false,
 				showSubtasks: true,
 				suffixSkips: false,
-				persistentOutput: true,
 				collapseErrors: false,
-			}
+			},
 		});
 	}
-	
-	/**
-	 * Create a simple spinner for single operations (like initialization)
-	 * @param {string} text - Initial text
-	 * @returns {object} Simple spinner object
-	 */
-	createSpinner(text) {
-		const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-		let frameIndex = 0;
-		let currentText = text;
-		let isRunning = false;
-		let interval;
-		
-		const spinner = {
-			start() {
-				isRunning = true;
-				process.stdout.write('\n');
-				interval = setInterval(() => {
-					if (isRunning) {
-						process.stdout.write(`\r${chalk.cyan(frames[frameIndex])} ${currentText}`);
-						frameIndex = (frameIndex + 1) % frames.length;
-					}
-				}, 80);
-				return this;
-			},
-			succeed(msg) {
-				this.stop();
-				process.stdout.write(`\r${chalk.green('✔')} ${chalk.green(msg)}\n`);
-			},
-			fail(msg) {
-				this.stop();
-				process.stdout.write(`\r${chalk.red('✖')} ${chalk.red(msg)}\n`);
-			},
-			warn(msg) {
-				this.stop();
-				process.stdout.write(`\r${chalk.yellow('⚠')} ${chalk.yellow(msg)}\n`);
-			},
-			stop() {
-				isRunning = false;
-				if (interval) {
-					clearInterval(interval);
-					process.stdout.write('\r\x1b[K'); // Clear line
-				}
-			},
-			set text(value) {
-				currentText = value;
-			}
-		};
-		
-		return spinner.start();
-	}
 
-	/**
-	 * Show task start info
-	 */
+	// ─── init ────────────────────────────────────────────────────────────────────
+
 	showTaskStartInfo(taskCount, startRow) {
-		console.log();
-		this.info(`Processing ${chalk.bold(taskCount)} task(s) starting from row ${chalk.bold(startRow)}`);
-		console.log();
-	}
-
-	/**
-	 * Show proxy configuration
-	 */
-	showProxyConfig(config) {
-		console.log();
-		this.info(chalk.cyan.bold('Proxy Configuration:'));
-		this.info(`  Total Proxies: ${chalk.bold(config.count)}`);
-		this.info(`  Uses Per Proxy: ${chalk.bold(config.usesPerProxy)}`);
-		this.info(`  Max Tasks: ${chalk.bold(config.maxTasks)}`);
-	}
-
-	/**
-	 * Show no proxy warning
-	 */
-	showNoProxyWarning() {
-		console.log();
-		console.log(chalk.yellow('-'.repeat(60)));
-		console.log(chalk.yellow.bold('WARNING: NO PROXIES LOADED'));
-		this.warn('The bot will run WITHOUT proxy rotation.');
-		this.warn('All tasks will use your direct IP address.');
-		console.log(chalk.yellow('-'.repeat(60)));
-		console.log();
-	}
-
-	/**
-	 * Show persistent task completion
-	 */
-	showTaskSuccess(row, code, email, proxyInfo) {
-		let message = chalk.green(`[Row ${chalk.bold(row)}] - Redeemed ${chalk.bold(code)} with ${chalk.bold(email)}`);
-		
-		if (proxyInfo) {
-			message += chalk.green(` - Proxy #${chalk.bold(proxyInfo.index)} - Use ${chalk.bold(proxyInfo.usage + '/' + proxyInfo.max)}`);
-		} else {
-			message += chalk.green(` - ${chalk.bold('Direct IP')}`);
-		}
-		
-		console.log(chalk.green('✔') + ' ' + message);
-	}
-
-	/**
-	 * Show proxy usage info
-	 */
-	showProxyUsage(proxyInfo) {
-		this.info(
-			`Using Proxy #${chalk.bold(proxyInfo.index + 1)} (Usage: ${proxyInfo.current}/${proxyInfo.max}, Remaining: ${proxyInfo.remaining})`,
+		console.log(
+			chalk.dim('  Processing ') +
+				chalk.white.bold(taskCount) +
+				chalk.dim(' task(s) starting from row ') +
+				chalk.white.bold(startRow),
 		);
 	}
 
-	/**
-	 * Show task failed
-	 */
-	showTaskFailed(row, code, email, proxyInfo, error) {
-		let message = chalk.red(`[Row ${chalk.bold(row)}] - Failed ${chalk.bold(code)} with ${chalk.bold(email)}`);
-		
-		if (proxyInfo) {
-			message += chalk.red(` - Proxy #${chalk.bold(proxyInfo.index)} - Use ${chalk.bold(proxyInfo.usage + '/' + proxyInfo.max)}`);
-		} else {
-			message += chalk.red(` - ${chalk.bold('Direct IP')}`);
-		}
-		
-		message += chalk.red(` - ${error}`);
-		
-		console.log(chalk.red('✖') + ' ' + message);
+	showProxyConfig(config) {
+		console.log(
+			chalk.dim('  Proxies: ') +
+				chalk.white.bold(config.count) +
+				chalk.dim('  ×  uses/proxy: ') +
+				chalk.white.bold(config.usesPerProxy) +
+				chalk.dim('  →  max tasks: ') +
+				chalk.white.bold(config.maxTasks),
+		);
 	}
 
-	/**
-	 * Show execution summary at end
-	 */
+	showNoProxyWarning() {
+		console.log();
+		console.log(chalk.yellow('  ⚠  No proxies loaded — running on direct IP'));
+		console.log();
+	}
+
+	// ─── execution summary ───────────────────────────────────────────────────────
+
 	showExecutionSummary(summary) {
 		const minutes = Math.floor(summary.duration / 60000);
 		const seconds = Math.floor((summary.duration % 60000) / 1000);
+		const durationStr = `${minutes}m ${seconds}s`;
 
-		console.log();
-		this.showHeader('EXECUTION SUMMARY');
-		this.info(`Total tasks: ${chalk.bold(summary.totalTasks)}`);
-		this.info(`Completed: ${chalk.green.bold(summary.completed)}`);
-		this.info(`Failed: ${chalk.red.bold(summary.failed)}`);
-
-		if (summary.skipped > 0) {
-			this.info(`Skipped (timeout): ${chalk.yellow.bold(summary.skipped)}`);
-		}
-
-		this.info(`Duration: ${chalk.bold(`${minutes}m ${seconds}s`)}`);
-
+		let rateStr = '';
 		if (summary.totalTasks > 0) {
-			const successRate = ((summary.completed / summary.totalTasks) * 100).toFixed(1);
-			const rateColor = successRate >= 80 ? chalk.green : successRate >= 50 ? chalk.yellow : chalk.red;
-			this.info(`Success Rate: ${rateColor.bold(successRate + '%')}`);
+			const rate = ((summary.completed / summary.totalTasks) * 100).toFixed(1);
+			const rateColor = rate >= 80 ? chalk.green : rate >= 50 ? chalk.yellow : chalk.red;
+			rateStr = rateColor.bold(rate + '%');
 		}
 
 		console.log();
-
-		if (summary.proxyUsage) {
-			this.info(summary.proxyUsage);
-		} else {
-			this.info('Proxy Usage: None (ran without proxies)');
-		}
-
-		console.log(chalk.cyan('═'.repeat(60)));
+		console.log(chalk.cyan.bold('Execution Summary'));
+		console.log(chalk.gray('  ─'.padEnd(50, '─')));
+		console.log(
+			chalk.dim('Tasks   ') +
+				chalk.white.bold(summary.completed) +
+				chalk.dim(' completed') +
+				'  ' +
+				chalk.gray(DIM) +
+				'  ' +
+				chalk.red.bold(summary.failed) +
+				chalk.dim(' failed') +
+				(summary.skipped > 0
+					? '  ' + chalk.gray(DIM) + '  ' + chalk.yellow.bold(summary.skipped) + chalk.dim(' skipped')
+					: ''),
+		);
+		console.log(chalk.dim('Rate    ') + (rateStr || chalk.dim('n/a')));
+		console.log(chalk.dim('Time    ') + chalk.white(durationStr));
+		console.log(chalk.gray('─'.padEnd(50, '─')));
 	}
 
+	// ─── error states ────────────────────────────────────────────────────────────
 
-
-	/**
-	 * Show max consecutive failures error
-	 */
 	showMaxFailuresError(consecutive, max) {
 		console.log();
-		console.log(chalk.red('═'.repeat(60)));
-		console.log(chalk.red.bold('STOPPING: Maximum consecutive failures reached'));
-		console.log(chalk.red('═'.repeat(60)));
-		this.error(`Consecutive failures: ${consecutive}`);
-		this.error(`Max allowed: ${max}`);
+		console.log(chalk.red('  ✖  Stopped — max consecutive failures reached'));
+		console.log(chalk.dim(`     ${consecutive}/${max} failures`));
+		console.log(chalk.dim('     Check proxies, credentials, or site changes.'));
 		console.log();
-		this.error('This usually indicates a systemic issue (proxy problems,');
-		this.error('website changes, credential issues, etc.)');
-		console.log();
-		this.error('Please investigate before continuing.');
-		console.log(chalk.red('═'.repeat(60)));
 	}
 
-	/**
-	 * Show graceful shutdown message
-	 */
 	showShutdown(signal) {
 		console.log();
-		console.log(chalk.yellow('═'.repeat(60)));
-		console.log(chalk.yellow.bold(`${signal} received - Shutting down gracefully...`));
-		console.log(chalk.yellow('═'.repeat(60)));
+		console.log(chalk.yellow(`  ⚠  ${signal} — shutting down...`));
 	}
 
-	/**
-	 * Show empty line
-	 */
-	newLine() {
-		console.log();
+	// ─── legacy helpers (kept for compatibility) ─────────────────────────────────
+
+	showTaskSuccess(row, code, email, proxyInfo) {
+		let message = chalk.green(`[Row ${chalk.bold(row)}] - Redeemed ${chalk.bold(code)} with ${chalk.bold(email)}`);
+
+		if (proxyInfo) {
+			message += chalk.green(
+				` - Proxy #${chalk.bold(proxyInfo.index)} - Use ${chalk.bold(proxyInfo.usage + '/' + proxyInfo.max)}`,
+			);
+		} else {
+			message += chalk.green(` - ${chalk.bold('Direct IP')}`);
+		}
+
+		console.log(chalk.green('✔') + ' ' + message);
+	}
+
+	showTaskFailed(row, code, email, proxyInfo, err) {
+		let message = chalk.red(`[Row ${chalk.bold(row)}] - Failed ${chalk.bold(code)} with ${chalk.bold(email)}`);
+
+		if (proxyInfo) {
+			message += chalk.red(
+				` - Proxy #${chalk.bold(proxyInfo.index)} - Use ${chalk.bold(proxyInfo.usage + '/' + proxyInfo.max)}`,
+			);
+		} else {
+			message += chalk.red(` - ${chalk.bold('Direct IP')}`);
+		}
+
+		message += chalk.red(` - ${err}`);
+
+		console.log(chalk.red('✖') + ' ' + message);
+	}
+
+	showProxyUsage(proxyInfo) {
+		this.info(
+			chalk.dim(`  Proxy #${proxyInfo.index + 1}`) +
+				chalk.dim(` (${proxyInfo.current}/${proxyInfo.max}, ${proxyInfo.remaining} remaining)`),
+		);
 	}
 }
 
-// Export singleton instance
 module.exports = new Display();

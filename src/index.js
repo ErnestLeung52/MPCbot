@@ -28,11 +28,13 @@ const dataSanitizer = require('./utils/dataSanitizer');
 function askConcurrency() {
 	return new Promise((resolve) => {
 		const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-		rl.question('How many concurrent tasks? (1, 2, or 3) [1]: ', (answer) => {
+		console.log();
+
+		rl.question('How many concurrent tasks? (1-3): ', (answer) => {
 			rl.close();
 			const raw = (answer || '1').trim();
 			const n = parseInt(raw, 10);
-			const value = (Number.isNaN(n) || n < 1 || n > 3) ? 1 : Math.min(3, n);
+			const value = Number.isNaN(n) || n < 1 || n > 3 ? 1 : Math.min(3, n);
 			resolve(value);
 		});
 	});
@@ -62,12 +64,12 @@ class MPCBot {
 		try {
 			// Show banner
 			display.showBanner();
-			
+
 			// Initialize Google Sheets
 			const sheetsSpinner = display.createSpinner('Connecting to Google Sheets...');
 			await googleSheets.initialize();
 			const sheetName = config.googleSheets.sheetName || 'Sheet';
-			sheetsSpinner.succeed(`Google Sheets connected: ${chalk.bold(sheetName)}`);
+			sheetsSpinner.succeed(`Google Sheets connected: ${chalk.green.bold(sheetName)}`);
 			logger.info(`✓ Connected to Google Sheets: "${sheetName}"`);
 
 			// Load proxies
@@ -80,13 +82,13 @@ class MPCBot {
 				proxySpinner.warn('No proxies loaded');
 				display.showNoProxyWarning();
 				logger.warn('No proxies loaded - using direct IP for all tasks');
-				
+
 				// No proxy scheduler in this case
 				this.proxyScheduler = null;
 			} else {
-				proxySpinner.succeed(`Loaded ${proxyCount} proxies`);
+				proxySpinner.succeed(`Loaded ${chalk.green.bold(proxyCount)} proxies`);
 				logger.info(`✓ Loaded ${proxyCount} proxy/proxies`);
-				
+
 				// Get all proxies for the scheduler
 				const proxies = [];
 				for (let i = 0; i < proxyCount; i++) {
@@ -97,22 +99,18 @@ class MPCBot {
 				const usesPerProxy = config.proxy.usesPerProxy;
 				this.proxyScheduler = new ProxyScheduler(proxies, usesPerProxy);
 
-				// Log proxy configuration
-				display.showProxyConfig({
-					count: proxyCount,
-					usesPerProxy: usesPerProxy,
-					maxTasks: this.proxyScheduler.getTotalTasks()
-				});
-				
-				logger.info(`Proxy config: ${proxyCount} proxies × ${usesPerProxy} uses = ${this.proxyScheduler.getTotalTasks()} max tasks`);
+				// Log proxy configuration to file only
+				logger.info(
+					`Proxy config: ${proxyCount} proxies × ${usesPerProxy} uses = ${this.proxyScheduler.getTotalTasks()} max tasks`,
+				);
 			}
 
-			display.newLine();
-			display.success('Initialization complete');
+			proxySpinner.succeed(chalk('Initialization complete'));
+
 			logger.info('=== INITIALIZATION COMPLETE ===');
 		} catch (error) {
-			display.error(`Initialization failed: ${error.message}`);
-			logger.error(`Initialization failed: ${error.message}`);
+			display.error(`Initialization Failed: ${error.message}`);
+			logger.error(`Initialization Failed: ${error.message}`);
 			process.exit(1);
 		}
 	}
@@ -238,15 +236,12 @@ class MPCBot {
 		const timeout = config.errorHandling.taskTimeout;
 		let timeoutId = null;
 		const timeoutPromise = new Promise((_, reject) => {
-			timeoutId = setTimeout(
-				() => reject(new Error(`Task timeout after ${timeout}ms`)),
-				timeout
-			);
+			timeoutId = setTimeout(() => reject(new Error(`Task timeout after ${timeout}ms`)), timeout);
 		});
 		try {
 			return await Promise.race([
 				this.processTask(rowData, headers, rowIndex, totalRows, allocation, listrTask),
-				timeoutPromise
+				timeoutPromise,
 			]);
 		} finally {
 			if (timeoutId != null) clearTimeout(timeoutId);
@@ -271,7 +266,7 @@ class MPCBot {
 		try {
 			// Add separator for task in logs
 			logger.separator();
-			
+
 			// Update status to "In Progress" at the start (silent)
 			try {
 				await googleSheets.updateRow(
@@ -303,9 +298,11 @@ class MPCBot {
 					index: proxyIndex + 1,
 					usage: currentUsage,
 					max: config.proxy.usesPerProxy,
-					remaining: remaining
+					remaining: remaining,
 				};
-				logger.info(`Using Proxy #${proxyInfo.index} (Usage: ${proxyInfo.usage}/${proxyInfo.max}, Remaining: ${proxyInfo.remaining})`);
+				logger.info(
+					`Using Proxy #${proxyInfo.index} (Usage: ${proxyInfo.usage}/${proxyInfo.max}, Remaining: ${proxyInfo.remaining})`,
+				);
 			}
 
 			// Optional: Completely wipe browser profile before launch (if configured)
@@ -320,10 +317,10 @@ class MPCBot {
 
 			// Extract row data using sheet mappings
 			const extractedData = sheetMapping.extractRowData(rowData, headers);
-			
+
 			// Sanitize the extracted data
 			const sanitizedData = dataSanitizer.sanitizeFormData(extractedData);
-			
+
 			const redeemCode = sanitizedData.redeemCode;
 			const email = sanitizedData.email;
 			const sheetRow = rowIndex + 2; // Convert to actual sheet row number
@@ -376,20 +373,34 @@ class MPCBot {
 				zipCode: sanitizedData.zipCode,
 				phoneNumber: sanitizedData.phone,
 				emailAddress: sanitizedData.email,
-				addressVerificationChoice: config.automation.addressVerification
+				addressVerificationChoice: config.automation.addressVerification,
 			};
 
 			// Validate required fields before filling
-			const requiredFields = ['firstName', 'lastName', 'streetAddress', 'city', 'state', 'zipCode', 'phoneNumber', 'emailAddress'];
-			const missingFields = requiredFields.filter(field => !formData[field]);
+			const requiredFields = [
+				'firstName',
+				'lastName',
+				'streetAddress',
+				'city',
+				'state',
+				'zipCode',
+				'phoneNumber',
+				'emailAddress',
+			];
+			const missingFields = requiredFields.filter((field) => !formData[field]);
 
 			if (missingFields.length > 0) {
 				throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
 			}
 
-			// Step 3: Fill form and extract card data
-			if (listrTask) listrTask.output = 'Submitting form...';
-			const cardData = await formFiller.fillRegistrationForm(page, formData);
+			// Step 3: Fill form and extract card data — pass a step callback so Listr2 shows live progress
+			if (listrTask) listrTask.output = 'Starting form...';
+			const onStep = listrTask
+				? (msg) => {
+						listrTask.output = msg;
+					}
+				: null;
+			const cardData = await formFiller.fillRegistrationForm(page, formData, onStep);
 
 			// Check if card data was extracted
 			if (!cardData) {
@@ -398,7 +409,7 @@ class MPCBot {
 
 			// Detect modal and extract card
 			if (listrTask) listrTask.output = 'Modal detected - extracting card data...';
-			
+
 			// Update progress: Saving to sheet
 			if (listrTask) listrTask.output = 'Updating Google Sheet...';
 
@@ -409,16 +420,19 @@ class MPCBot {
 			});
 
 			await googleSheets.updateRow(rowIndex, updateData);
-			
-		// Update the task title so the final state persists in the Listr2 display after completion
-		if (listrTask) {
-			listrTask.title = `Row ${sheetRow} | ${email} | Card: ${cardData.cardNumber}`;
-			listrTask.output = `Exp: ${cardData.exp} | CVV: ${cardData.cvv}`;
-		}
 
-		// Log success to file
-		logger.logTaskSuccess(redeemCode, email, sheetRow, cardData.cardNumber);
-		logger.info(`Card details: ${cardData.cardNumber} | Exp: ${cardData.exp} | CVV: ${cardData.cvv}`);
+			// Update the task title so the final state persists in the Listr2 display after completion
+			// Clear output so no intermediate step message lingers beneath the title
+			if (listrTask) {
+				listrTask.title = chalk.gray(
+					`${chalk.cyan(`Task #${sheetRow}`)} ${chalk.dim('|')} ${chalk.white(email)} ${chalk.dim('·')} ${chalk.green(cardData.cardNumber)} ${chalk.dim('·')} ${chalk.gray(cardData.exp)} ${chalk.dim('·')} ${chalk.gray(cardData.cvv)}`,
+				);
+				listrTask.output = '';
+			}
+
+			// Log success to file
+			logger.logTaskSuccess(redeemCode, email, sheetRow, cardData.cardNumber);
+			logger.info(`Card details: ${cardData.cardNumber} | Exp: ${cardData.exp} | CVV: ${cardData.cvv}`);
 
 			// Close browser (unless keepOpen is enabled for testing)
 			// NOTE: Persistent data files will be deleted on next launch
@@ -452,14 +466,15 @@ class MPCBot {
 			const email = sanitizedData.email || 'N/A';
 			const sheetRow = rowIndex + 2;
 
-		// Update the task title and output so the failure state persists in the Listr2 display
-		if (listrTask) {
-			listrTask.title = `Row ${sheetRow} | ${email} | Failed`;
-			listrTask.output = error.message;
-		}
+			// Update the task title so the failure state persists in the Listr2 display
+			// Keep the error in the title itself so it's visible after completion
+			if (listrTask) {
+				listrTask.title = `Row ${sheetRow} | ${email} | Failed: ${error.message}`;
+				listrTask.output = '';
+			}
 
-		// Log failure to file
-		logger.logTaskFailure(redeemCode, email, sheetRow, error.message);
+			// Log failure to file
+			logger.logTaskFailure(redeemCode, email, sheetRow, error.message);
 
 			// Try to update sheet with error status
 			try {
@@ -517,7 +532,9 @@ class MPCBot {
 			// Ask concurrency (1, 2, or 3) and configure browser slots
 			this.concurrency = await askConcurrency();
 			browserService.setConcurrency(this.concurrency);
-			display.info(`Running with ${chalk.bold(this.concurrency)} concurrent task(s)`);
+			console.log();
+			display.info(`Running with ${chalk.green.bold(this.concurrency)} concurrent task(s)`);
+			console.log();
 
 			// Get maximum tasks we can run based on proxy availability
 			const maxTasks = this.proxyScheduler ? this.proxyScheduler.getTotalTasks() : Infinity;
@@ -555,12 +572,14 @@ class MPCBot {
 				if (this.proxyScheduler && !this.proxyScheduler.hasMore()) break;
 				const alloc = this.proxyScheduler ? this.proxyScheduler.getNext() : null;
 				if (this.proxyScheduler && !alloc) break;
-				const proxyInfo = alloc ? {
-					index: alloc.proxyIndex + 1,
-					usage: alloc.currentUsage,
-					max: config.proxy.usesPerProxy,
-					remaining: alloc.remaining
-				} : null;
+				const proxyInfo = alloc
+					? {
+							index: alloc.proxyIndex + 1,
+							usage: alloc.currentUsage,
+							max: config.proxy.usesPerProxy,
+							remaining: alloc.remaining,
+						}
+					: null;
 				workItems.push({
 					task,
 					proxy: alloc ? alloc.proxy : null,
@@ -577,9 +596,13 @@ class MPCBot {
 
 			const maxTasksForDisplay = this.proxyScheduler ? this.proxyScheduler.getTotalTasks() : this.totalTasks;
 			if (this.proxyScheduler) {
-				logger.info(`Starting batch: ${this.totalTasks} tasks | Concurrency: ${this.concurrency} | Max capacity: ${maxTasksForDisplay}`);
+				logger.info(
+					`Starting batch: ${this.totalTasks} tasks | Concurrency: ${this.concurrency} | Max capacity: ${maxTasksForDisplay}`,
+				);
 			} else {
-				logger.info(`Starting batch: ${this.totalTasks} tasks | Concurrency: ${this.concurrency} | No proxy limit`);
+				logger.info(
+					`Starting batch: ${this.totalTasks} tasks | Concurrency: ${this.concurrency} | No proxy limit`,
+				);
 			}
 
 			display.showTaskStartInfo(this.totalTasks, workItems[0].task.sheetRowNumber);
@@ -596,42 +619,66 @@ class MPCBot {
 
 				const batch = workItems.slice(batchStart, batchStart + concurrency);
 				const batchNumber = Math.floor(batchStart / concurrency) + 1;
-				logger.info(`Starting batch ${batchNumber}: tasks ${batchStart + 1}-${batchStart + batch.length} (rows: ${batch.map(b => b.task.sheetRowNumber).join(', ')})`);
+				const totalBatches = Math.ceil(workItems.length / concurrency);
+				logger.info(
+					`Starting batch ${batchNumber}: tasks ${batchStart + 1}-${batchStart + batch.length} (rows: ${batch.map((b) => b.task.sheetRowNumber).join(', ')})`,
+				);
+
+				// Print batch separator BEFORE creating listr tasks
+				if (batchNumber > 1) {
+					console.log(''); // Add spacing between batches
+				}
+				console.log(chalk.dim(`  Batch ${batchNumber}/${totalBatches} `) + chalk.gray('─'.repeat(38)));
 
 				const ctx = { results: new Array(batch.length) };
-				const listrTasks = batch.map((workItem, batchIndex) => ({
-					title: `Row ${workItem.task.sheetRowNumber} | ${workItem.task.email}`,
-					task: async (ctx, listrTask) => {
-						if (batchIndex > 0) {
-							const staggerMs = batchIndex * (STAGGER_MS_MIN + Math.random() * (STAGGER_MS_MAX - STAGGER_MS_MIN));
-							await new Promise(r => setTimeout(r, Math.round(staggerMs)));
-						}
+				const listrTasks = batch.map((workItem, batchIndex) => {
+					// Build title with proxy info
+					let title = `Row ${workItem.task.sheetRowNumber} | ${workItem.task.email}`;
+					if (workItem.proxyInfo) {
+						title += ` | Proxy #${workItem.proxyInfo.index}`;
+					} else {
+						title += ` | Direct IP`;
+					}
 
-						const allocation = {
-							proxy: workItem.proxy,
-							proxyInfo: workItem.proxyInfo,
-							slotIndex: batchIndex,
-						};
+					return {
+						title: title,
+						task: async (ctx, listrTask) => {
+							if (batchIndex > 0) {
+								const staggerMs =
+									batchIndex * (STAGGER_MS_MIN + Math.random() * (STAGGER_MS_MAX - STAGGER_MS_MIN));
+								await new Promise((r) => setTimeout(r, Math.round(staggerMs)));
+							}
 
-						try {
-							const result = await bot.processTaskWithTimeout(
-								workItem.task.rowData,
-								headers,
-								workItem.task.rowIndex,
-								bot.totalTasks,
-								allocation,
-								listrTask
-							);
-							ctx.results[batchIndex] = { result, workItem, error: null };
-						} catch (error) {
-							ctx.results[batchIndex] = { result: null, workItem, error };
-						}
-					},
-				}));
+							const allocation = {
+								proxy: workItem.proxy,
+								proxyInfo: workItem.proxyInfo,
+								slotIndex: batchIndex,
+							};
+
+							try {
+								const result = await bot.processTaskWithTimeout(
+									workItem.task.rowData,
+									headers,
+									workItem.task.rowIndex,
+									bot.totalTasks,
+									allocation,
+									listrTask,
+								);
+								ctx.results[batchIndex] = { result, workItem, error: null };
+							} catch (error) {
+								ctx.results[batchIndex] = { result: null, workItem, error };
+							}
+						},
+					};
+				});
 
 				const taskRunner = display.createTaskRunner(listrTasks, batch.length);
 				await taskRunner.run(ctx);
 
+				// Give Listr2's renderer a tick to fully flush its final output to the terminal
+				await new Promise((r) => setTimeout(r, 100));
+
+				// Process results for error handling
 				for (let i = 0; i < batch.length; i++) {
 					const item = ctx.results[i];
 					if (!item) continue;
@@ -671,11 +718,19 @@ class MPCBot {
 
 					if (bot.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
 						bot.shouldStop = true;
-						display.showMaxFailuresError(bot.consecutiveFailures, config.errorHandling.maxConsecutiveFailures);
-						logger.error(`Maximum consecutive failures reached: ${bot.consecutiveFailures}/${config.errorHandling.maxConsecutiveFailures}`);
+						display.showMaxFailuresError(
+							bot.consecutiveFailures,
+							config.errorHandling.maxConsecutiveFailures,
+						);
+						logger.error(
+							`Maximum consecutive failures reached: ${bot.consecutiveFailures}/${config.errorHandling.maxConsecutiveFailures}`,
+						);
 					}
 				}
 			}
+
+			// Wait for listr2 to fully flush its output before printing summary
+			await new Promise((resolve) => setTimeout(resolve, 200));
 
 			logger.separator();
 			logger.info('=== BATCH COMPLETED ===');
@@ -704,15 +759,15 @@ class MPCBot {
 			logger.info(`Skipped: ${this.skippedTasks}`);
 		}
 		logger.info(`Duration: ${minutes}m ${seconds}s`);
-		
+
 		if (this.totalTasks > 0) {
 			const successRate = ((this.completedTasks / this.totalTasks) * 100).toFixed(1);
 			logger.info(`Success Rate: ${successRate}%`);
 		}
 
-		if (this.proxyScheduler) {
-			logger.info(this.proxyScheduler.getUsageSummary());
-		}
+		// if (this.proxyScheduler) {
+		// 	logger.info(this.proxyScheduler.getUsageSummary());
+		// }
 
 		// Display summary on console
 		display.showExecutionSummary({
@@ -721,7 +776,7 @@ class MPCBot {
 			failed: this.failedTasks,
 			skipped: this.skippedTasks,
 			duration: totalDuration,
-			proxyUsage: this.proxyScheduler ? this.proxyScheduler.getUsageSummary() : null
+			// proxyUsage: this.proxyScheduler ? this.proxyScheduler.getUsageSummary() : null,
 		});
 	}
 }
@@ -732,15 +787,15 @@ class MPCBot {
  */
 async function gracefulShutdown(signal) {
 	display.showShutdown(signal);
-	
+
 	try {
 		// Force close any open browser
 		const cleanupSpinner = display.createSpinner('Cleaning up...');
 		await browserService.forceClose();
 		cleanupSpinner.succeed('Cleanup completed');
-		
-		display.info('Goodbye!');
-		
+
+		// display.info('Goodbye!');
+
 		process.exit(0);
 	} catch (error) {
 		display.error(`Error during shutdown: ${error.message}`);
@@ -759,7 +814,6 @@ async function main() {
 		await bot.initialize();
 		await bot.run();
 
-		display.success('Application completed successfully');
 		logger.info('Application completed successfully');
 		process.exit(0);
 	} catch (error) {
@@ -787,18 +841,18 @@ process.on('unhandledRejection', async (error) => {
 	display.error('This should not happen during normal task processing.');
 	display.error('All task errors should be caught by the task handler.');
 	console.log(chalk.red('═'.repeat(60)));
-	
+
 	logger.error('UNHANDLED PROMISE REJECTION');
 	logger.error(`Error: ${error.message}`);
 	logger.error('Stack:', error.stack);
-	
+
 	// Try to clean up
 	try {
 		await browserService.forceClose();
 	} catch (e) {
 		// Silent fail
 	}
-	
+
 	// Log and exit after a delay to allow logs to flush
 	setTimeout(() => {
 		display.error('Exiting due to unhandled rejection...');
@@ -817,18 +871,18 @@ process.on('uncaughtException', async (error) => {
 	display.newLine();
 	display.error('This indicates a serious issue outside normal task flow.');
 	console.log(chalk.red('═'.repeat(60)));
-	
+
 	logger.error('UNCAUGHT EXCEPTION');
 	logger.error(`Error: ${error.message}`);
 	logger.error('Stack:', error.stack);
-	
+
 	// Try to clean up
 	try {
 		await browserService.forceClose();
 	} catch (e) {
 		// Silent fail
 	}
-	
+
 	// Log and exit after a delay to allow logs to flush
 	setTimeout(() => {
 		display.error('Exiting due to uncaught exception...');

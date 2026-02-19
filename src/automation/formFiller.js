@@ -327,18 +327,22 @@ class FormFiller {
    * @param {string} formData.phoneNumber - Phone number
    * @param {string} formData.emailAddress - Email address
    * @param {string} formData.addressVerificationChoice - 'entered' or 'suggested' (default: 'entered')
-   * @returns {Promise<void>}
+   * @param {Function} [onStep] - Optional callback(message) called at each progress step
+   * @returns {Promise<Object>} - Card data object
    */
-  async fillRegistrationForm(page, formData) {
+  async fillRegistrationForm(page, formData, onStep) {
+    const step = (msg) => { if (onStep) onStep(msg); };
     try {
       // Log task summary in one line
       logger.info(`Filling form: ${formData.emailAddress}, ${formData.firstName} ${formData.lastName}, ${formData.streetAddress}, ${formData.city}, ${formData.state}, ${formData.zipCode}`);
 
       // Select Country (United States)
+      step('Selecting country...');
       await this.selectDropdownByText(page, '#addCountry', 'United States');
       await humanBehavior.randomDelay();
 
       // Fill First Name (only field with typo enabled for human-like behavior)
+      step(`Filling name: ${formData.firstName} ${formData.lastName}`);
       await this.fillTextField(page, '#addFirstName', formData.firstName, { enableTypos: true });
       await humanBehavior.randomDelay();
 
@@ -347,6 +351,7 @@ class FormFiller {
       await humanBehavior.randomDelay();
 
       // Fill Street Address (no typos to ensure data accuracy)
+      step(`Filling address: ${formData.streetAddress}, ${formData.city}, ${formData.state}`);
       await this.fillTextField(page, '#addLine1', formData.streetAddress, { enableTypos: false });
       await humanBehavior.randomDelay();
 
@@ -380,6 +385,7 @@ class FormFiller {
       await humanBehavior.randomDelay();
 
       // Fill Phone Number (no typos for numeric fields)
+      step(`Filling phone & email...`);
       await this.fillTextField(page, '#addPhoneNumber', formData.phoneNumber, { enableTypos: false });
       await humanBehavior.randomDelay();
 
@@ -399,6 +405,7 @@ class FormFiller {
       await humanBehavior.randomDelay(300, 500);
       
       logger.info('Checkboxes found in DOM, proceeding to check them...');
+      step('Checking E-Sign & Cardholder Agreement...');
       
       // E-Sign Disclosure checkbox - use JavaScript directly (most reliable)
       logger.info('Checking E-Sign Disclosure checkbox...');
@@ -435,6 +442,7 @@ class FormFiller {
       await humanBehavior.randomDelay(200, 300);
 
       // Click Activate button
+      step('Clicking Activate...');
       await humanBehavior.submitDelay();
       await page.locator('button[data-trustmark-btn]').scrollIntoViewIfNeeded();
       await humanBehavior.randomDelay(500, 1000);
@@ -442,6 +450,7 @@ class FormFiller {
       
       // Wait for processing and continuously check for modals
       logger.info('Waiting for activation to process and checking for modals...');
+      step('Waiting for activation...');
       
       const maxWaitTime = 20000; // Maximum 20 seconds
       const checkInterval = 1000; // Check every 1 second
@@ -455,6 +464,7 @@ class FormFiller {
         needsVerification = await this.isAddressVerificationModalVisible(page);
         if (needsVerification) {
           logger.info('Address verification modal detected!');
+          step('Verifying address...');
           const verificationChoice = formData.addressVerificationChoice || 'entered';
           await this.handleAddressVerification(page, verificationChoice);
           
@@ -467,6 +477,7 @@ class FormFiller {
         isCardActivated = await this.isCardActivatedModalVisible(page);
         if (isCardActivated) {
           logger.info('Card activation success modal detected!');
+          step('Extracting card data...');
           // Extract card data from the success modal
           const cardData = await this.extractCardData(page);
           logger.info('Registration form completed and card activated successfully');
