@@ -1,6 +1,6 @@
 const chalk = require('chalk');
-const ora = require('ora');
 const figlet = require('figlet');
+const { Listr } = require('listr2');
 
 /**
  * Display utility for beautiful terminal output
@@ -67,15 +67,71 @@ class Display {
 	}
 
 	/**
-	 * Create a spinner for ongoing tasks
-	 * @param {string} text - Initial spinner text
-	 * @returns {object} Ora spinner instance
+	 * Create a Listr2 task runner for concurrent tasks
+	 * @param {Array} tasks - Array of task configurations
+	 * @param {number} concurrent - Number of concurrent tasks
+	 * @returns {Listr} Listr2 instance
+	 */
+	createTaskRunner(tasks, concurrent = 3) {
+		return new Listr(tasks, {
+			concurrent,
+			rendererOptions: {
+				collapseSubtasks: false,
+				showSubtasks: true,
+				suffixSkips: false,
+			}
+		});
+	}
+	
+	/**
+	 * Create a simple spinner for single operations (like initialization)
+	 * @param {string} text - Initial text
+	 * @returns {object} Simple spinner object
 	 */
 	createSpinner(text) {
-		return ora({
-			text: text,
-			color: 'cyan',
-		}).start();
+		const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+		let frameIndex = 0;
+		let currentText = text;
+		let isRunning = false;
+		let interval;
+		
+		const spinner = {
+			start() {
+				isRunning = true;
+				process.stdout.write('\n');
+				interval = setInterval(() => {
+					if (isRunning) {
+						process.stdout.write(`\r${chalk.cyan(frames[frameIndex])} ${currentText}`);
+						frameIndex = (frameIndex + 1) % frames.length;
+					}
+				}, 80);
+				return this;
+			},
+			succeed(msg) {
+				this.stop();
+				process.stdout.write(`\r${chalk.green('✔')} ${chalk.green(msg)}\n`);
+			},
+			fail(msg) {
+				this.stop();
+				process.stdout.write(`\r${chalk.red('✖')} ${chalk.red(msg)}\n`);
+			},
+			warn(msg) {
+				this.stop();
+				process.stdout.write(`\r${chalk.yellow('⚠')} ${chalk.yellow(msg)}\n`);
+			},
+			stop() {
+				isRunning = false;
+				if (interval) {
+					clearInterval(interval);
+					process.stdout.write('\r\x1b[K'); // Clear line
+				}
+			},
+			set text(value) {
+				currentText = value;
+			}
+		};
+		
+		return spinner.start();
 	}
 
 	/**

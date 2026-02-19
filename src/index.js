@@ -231,9 +231,10 @@ class MPCBot {
 	 * @param {number} rowIndex - Index of the row (0-based)
 	 * @param {number} totalRows - Total number of rows
 	 * @param {{ proxy?: Object, proxyInfo?: Object, slotIndex?: number }} [allocation] - Pre-allocated proxy and slot (for concurrent runs)
+	 * @param {Object} [listrTask] - Listr task object for progress updates
 	 * @returns {Promise<Object>} - Result object
 	 */
-	async processTaskWithTimeout(rowData, headers, rowIndex, totalRows, allocation = null) {
+	async processTaskWithTimeout(rowData, headers, rowIndex, totalRows, allocation = null, listrTask = null) {
 		const timeout = config.errorHandling.taskTimeout;
 		let timeoutId = null;
 		const timeoutPromise = new Promise((_, reject) => {
@@ -244,7 +245,7 @@ class MPCBot {
 		});
 		try {
 			return await Promise.race([
-				this.processTask(rowData, headers, rowIndex, totalRows, allocation),
+				this.processTask(rowData, headers, rowIndex, totalRows, allocation, listrTask),
 				timeoutPromise
 			]);
 		} finally {
@@ -261,7 +262,7 @@ class MPCBot {
 	 * @param {{ proxy?: Object, proxyInfo?: Object, slotIndex?: number }} [allocation] - Pre-allocated proxy and slot (for concurrent runs)
 	 * @returns {Promise<Object>} - Result object
 	 */
-	async processTask(rowData, headers, rowIndex, totalRows, allocation = null) {
+	async processTask(rowData, headers, rowIndex, totalRows, allocation = null, listrTask = null) {
 		const taskNumber = rowIndex + 1;
 		const startTime = Date.now();
 		let browser = null;
@@ -313,6 +314,7 @@ class MPCBot {
 			}
 
 			// Launch browser for this slot with proxy; each slot uses its own profile (fresh session)
+			if (listrTask) listrTask.output = 'Initializing browser...';
 			browser = await browserService.launch(slotIndex, proxy);
 			page = await browserService.createPage(browser);
 
@@ -337,15 +339,15 @@ class MPCBot {
 			// Log task start to file
 			logger.logTaskStart(currentTaskNum, maxCapacity, sheetRow, email, redeemCode);
 
-			// Create a single task spinner
-			const taskSpinner = display.createSpinner(`Redeeming code ${chalk.bold(redeemCode)}...`);
+			// Update listr progress
+			if (listrTask) listrTask.output = `Redeem code: ${redeemCode}`;
 
 			// Step 1: Navigate with redeem code and validate
+			if (listrTask) listrTask.output = 'Validating redeem code...';
 			const validation = await formFiller.navigateWithRedeemCode(page, config.targetUrl, redeemCode);
 
 			// Check if redeem code is valid
 			if (!validation.success) {
-				taskSpinner.fail(`Invalid code`);
 				logger.error(`Redeem code validation failed: ${validation.message}`);
 
 				// Update sheet with invalid code status
@@ -360,8 +362,8 @@ class MPCBot {
 				throw new Error(`Invalid redeem code: ${validation.message}`);
 			}
 
-			// Update spinner: Code validated
-			taskSpinner.text = `Redeeming ${chalk.bold(redeemCode)}: Filling form...`;
+			// Update progress
+			if (listrTask) listrTask.output = 'Autofilling form...';
 
 			// Step 2: Fill and submit registration form
 			const formData = {
@@ -382,22 +384,23 @@ class MPCBot {
 			const missingFields = requiredFields.filter(field => !formData[field]);
 
 			if (missingFields.length > 0) {
-				taskSpinner.fail('Missing required fields');
 				throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
 			}
 
 			// Step 3: Fill form and extract card data
-			taskSpinner.text = `Redeeming ${chalk.bold(redeemCode)}: Activating card...`;
+			if (listrTask) listrTask.output = 'Submitting form...';
 			const cardData = await formFiller.fillRegistrationForm(page, formData);
 
 			// Check if card data was extracted
 			if (!cardData) {
-				taskSpinner.fail('Card activation failed');
 				throw new Error('Card activation failed - no card data received');
 			}
 
-			// Update spinner: Saving to sheet
-			taskSpinner.text = `Redeeming ${chalk.bold(redeemCode)}: Updating Google Sheet row ${sheetRow}...`;
+			// Detect modal and extract card
+			if (listrTask) listrTask.output = 'Modal detected - extracting card data...';
+			
+			// Update progress: Saving to sheet
+			if (listrTask) listrTask.output = 'Updating Google Sheet...';
 
 			// Update Google Sheet with results
 			const updateData = sheetMapping.buildUpdateData({
@@ -407,9 +410,8 @@ class MPCBot {
 
 			await googleSheets.updateRow(rowIndex, updateData);
 			
-			// Stop spinner and show success
-			taskSpinner.stop();
-			display.showTaskSuccess(sheetRow, redeemCode, email, proxyInfo);
+			// Update final progress
+			if (listrTask) listrTask.output = `✓ Successfully retrieved ${cardData.cardNumber}`;
 			
 			// Log success to file
 			logger.logTaskSuccess(redeemCode, email, sheetRow, cardData.cardNumber);
@@ -434,6 +436,7 @@ class MPCBot {
 				success: true,
 				duration,
 				cardData,
+				redeemCode,
 			};
 		} catch (error) {
 			// Handle error
@@ -446,8 +449,8 @@ class MPCBot {
 			const email = sanitizedData.email || 'N/A';
 			const sheetRow = rowIndex + 2;
 
-			// Show failure message (proxyInfo should be available from outer scope)
-			display.showTaskFailed(sheetRow, redeemCode, email, proxyInfo, error.message);
+			// Update listr progress with error
+			if (listrTask) listrTask.output = `✖ ${error.message}`;
 			
 			// Log failure to file
 			logger.logTaskFailure(redeemCode, email, sheetRow, error.message);
@@ -491,6 +494,7 @@ class MPCBot {
 			return {
 				success: false,
 				error: error.message,
+				redeemCode: redeemCode,
 			};
 		}
 	}
@@ -574,22 +578,81 @@ class MPCBot {
 
 			display.showTaskStartInfo(this.totalTasks, workItems[0].task.sheetRowNumber);
 
-			// Run concurrent workers with staggered start for the first 3: avoids all traffic hitting the site at once
-			const concurrency = Math.min(this.concurrency, workItems.length);
-			const STAGGER_MS_MIN = 1000;
-			const STAGGER_MS_MAX = 2000;
-			const workers = [];
-			for (let workerId = 0; workerId < concurrency; workerId++) {
-				workers.push((async () => {
-					// Only stagger the first 3 tasks: worker 0 starts immediately, 1 after 1–2s, 2 after 2–4s
-					if (workerId > 0) {
-						const staggerMs = workerId * (STAGGER_MS_MIN + Math.random() * (STAGGER_MS_MAX - STAGGER_MS_MIN));
+			// Create listr2 tasks for concurrent execution
+			const listrTasks = workItems.map((workItem, index) => ({
+				title: `Row ${workItem.task.sheetRowNumber} | ${workItem.task.email}`,
+				task: async (ctx, task) => {
+					// Stagger the first 3 tasks
+					if (index < 3 && index > 0) {
+						const STAGGER_MS_MIN = 1000;
+						const STAGGER_MS_MAX = 2000;
+						const staggerMs = index * (STAGGER_MS_MIN + Math.random() * (STAGGER_MS_MAX - STAGGER_MS_MIN));
 						await new Promise(r => setTimeout(r, Math.round(staggerMs)));
 					}
-					return this._runWorker(workerId, workItems, headers);
-				})());
-			}
-			await Promise.all(workers);
+					
+					const allocation = { 
+						proxy: workItem.proxy, 
+						proxyInfo: workItem.proxyInfo, 
+						slotIndex: index 
+					};
+					
+					try {
+						const result = await this.processTaskWithTimeout(
+							workItem.task.rowData,
+							headers,
+							workItem.task.rowIndex,
+							this.totalTasks,
+							allocation,
+							task // Pass listr task for progress updates
+						);
+						
+						if (result && result.success) {
+							this.completedTasks++;
+							this.consecutiveFailures = 0;
+							// Show final success message
+							display.showTaskSuccess(
+								workItem.task.sheetRowNumber,
+								result.redeemCode,
+								workItem.task.email,
+								workItem.proxyInfo
+							);
+						} else {
+							this.failedTasks++;
+							this.consecutiveFailures++;
+							// Show final failure message
+							display.showTaskFailed(
+								workItem.task.sheetRowNumber,
+								result.redeemCode || 'N/A',
+								workItem.task.email,
+								workItem.proxyInfo,
+								result.error || 'Unknown error'
+							);
+						}
+						
+						// Check for stopping conditions
+						if (this.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
+							this.shouldStop = true;
+						}
+					} catch (error) {
+						this.failedTasks++;
+						this.consecutiveFailures++;
+						
+						display.showTaskFailed(
+							workItem.task.sheetRowNumber,
+							'N/A',
+							workItem.task.email,
+							workItem.proxyInfo,
+							error.message
+						);
+						
+						logger.error(`Task failed: ${error.message}`);
+					}
+				}
+			}));
+
+			// Run tasks with listr2
+			const taskRunner = display.createTaskRunner(listrTasks, Math.min(this.concurrency, workItems.length));
+			await taskRunner.run();
 
 			logger.separator();
 			logger.info('=== BATCH COMPLETED ===');
