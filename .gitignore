@@ -30,6 +30,7 @@ screenshots/
 
 # Browser profile (persistent Chrome data)
 .browser-profile/
+.browser-profile-*/
 
 # Guide
 PROJECT_SUMMARY.md

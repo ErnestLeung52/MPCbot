@@ -4,19 +4,45 @@ const fs = require('fs').promises;
 const config = require('../../config/config');
 const logger = require('../utils/logger');
 
+/** Maximum number of concurrent browser slots (profiles) */
+const MAX_SLOTS = 3;
+
 class BrowserService {
 	constructor() {
-		this.context = null;
+		/** @type {Object.<number, import('patchright').BrowserContext>} */
+		this.contexts = {};
+		/** Number of concurrent slots (1, 2, or 3) */
+		this.maxSlots = 1;
+	}
+
+	/**
+	 * Set concurrency (number of browser profiles). Call before launch.
+	 * @param {number} n - 1, 2, or 3
+	 */
+	setConcurrency(n) {
+		const num = Math.min(MAX_SLOTS, Math.max(1, Number(n) || 1));
+		this.maxSlots = num;
+	}
+
+	/**
+	 * Get profile directory for a slot. Each slot has an isolated profile.
+	 * @param {number} slotIndex - 0, 1, or 2
+	 * @returns {string}
+	 */
+	getProfileDir(slotIndex) {
+		const base = path.join(__dirname, '../..');
+		return path.join(base, slotIndex === 0 ? '.browser-profile-0' : `.browser-profile-${slotIndex}`);
 	}
 
 	/**
 	 * Fix Chrome preferences to prevent "Restore pages?" dialog
 	 * Sets exit_type to "Normal" and exited_cleanly to true
+	 * @param {number} [slotIndex=0]
 	 * @returns {Promise<void>}
 	 */
-	async fixChromePreferences() {
+	async fixChromePreferences(slotIndex = 0) {
 		try {
-			const userDataDir = path.join(__dirname, '../../.browser-profile');
+			const userDataDir = this.getProfileDir(slotIndex);
 			const defaultProfileDir = path.join(userDataDir, 'Default');
 			const prefsPath = path.join(defaultProfileDir, 'Preferences');
 
@@ -53,11 +79,12 @@ class BrowserService {
 	 * Delete persistent browser data files (history, cookies, cache, etc.)
 	 * This removes the actual database files that store browsing data
 	 * More thorough than CDP clearing, but keeps profile structure
+	 * @param {number} [slotIndex=0]
 	 * @returns {Promise<void>}
 	 */
-	async deletePersistentDataFiles() {
+	async deletePersistentDataFiles(slotIndex = 0) {
 		try {
-			const userDataDir = path.join(__dirname, '../../.browser-profile');
+			const userDataDir = this.getProfileDir(slotIndex);
 			const defaultProfileDir = path.join(userDataDir, 'Default');
 			
 			// Check if Default profile directory exists
@@ -154,73 +181,57 @@ class BrowserService {
 	 * 5. NO custom headers - detection vector
 	 * 6. GPU args only - force M1 Metal backend to avoid SwiftShader detection
 	 *
-	 * @param {Object} proxy - Proxy configuration (optional)
+	 * Each slot uses its own profile directory so concurrent sessions stay isolated and fresh.
+	 *
+	 * @param {number} slotIndex - Browser slot (0 to maxSlots-1)
+	 * @param {Object} [proxy=null] - Proxy configuration (optional)
 	 * @returns {Promise<BrowserContext>} - Patchright persistent context
 	 */
-	async launch(proxy = null) {
+	async launch(slotIndex = 0, proxy = null) {
 		try {
-			// CRITICAL: Delete all persistent data files BEFORE launching
-			// This ensures a completely fresh browser state for each task
-			await this.deletePersistentDataFiles();
-			
-			// Fix Chrome preferences to prevent "Restore pages?" dialog
-			await this.fixChromePreferences();
+			// Backward compat: launch(proxy) with single argument
+			if (arguments.length === 1 && slotIndex && typeof slotIndex === 'object' && slotIndex.server) {
+				proxy = slotIndex;
+				slotIndex = 0;
+			}
+			const slot = Math.min(slotIndex, this.maxSlots - 1);
 
-			// Use a persistent user data directory (simulates real Chrome profile)
-			// This creates browsing history, cookies, local storage, etc.
-			const userDataDir = path.join(__dirname, '../../.browser-profile');
+			// CRITICAL: Delete all persistent data files BEFORE launching for this slot
+			// This ensures a completely fresh browser state for each task
+			await this.deletePersistentDataFiles(slot);
+
+			// Fix Chrome preferences to prevent "Restore pages?" dialog
+			await this.fixChromePreferences(slot);
+
+			const userDataDir = this.getProfileDir(slot);
 
 			// Build launch options following the guide's recommendations
 			// Reference: https://roundproxies.com/blog/patchright/#step-2-configure-for-maximum-stealth
 			const launchOptions = {
-				// CRITICAL: Use real Chrome, not Chromium
-				// "Real users don't browse with Chromium, and anti-bot systems know this"
 				channel: 'chrome',
-
-				// NEVER use headless for critical scraping
-				// Modern detection can spot headless browsers instantly
 				headless: config.browser.headless,
-
-				// Use native viewport (don't constrain it)
-				// This makes the browser use its natural resolution
 				viewport: null,
-
-				// Let patchright handle user agent automatically
-				// DON'T add custom user_agent here - it's a detection vector
-
-				// GPU-specific flags to force M1 Metal backend instead of SwiftShader
-				// This is critical for avoiding GPU fingerprint detection
-				// Patchright will merge these with its own stealth flags
 				args: [
-					'--use-gl=angle',           // Use ANGLE (Almost Native Graphics Layer Engine)
-					'--use-angle=metal',        // Force Metal backend for M1 GPU
-					'--ignore-gpu-blocklist',   // Don't block GPU even if blacklisted
-					'--enable-gpu-rasterization', // Enable GPU-accelerated rasterization
-					'--disable-session-crashed-bubble', // Disable "Chrome didn't shut down correctly" bubble
-					'--hide-crash-restore-bubble',      // Hide restore bubble
+					'--use-gl=angle',
+					'--use-angle=metal',
+					'--ignore-gpu-blocklist',
+					'--enable-gpu-rasterization',
+					'--disable-session-crashed-bubble',
+					'--hide-crash-restore-bubble',
 				],
 			};
 
-			// Add proxy if provided
 			if (proxy) {
 				launchOptions.proxy = {
 					server: proxy.server,
 				};
-
-				if (proxy.username) {
-					launchOptions.proxy.username = proxy.username;
-				}
-
-				if (proxy.password) {
-					launchOptions.proxy.password = proxy.password;
-				}
+				if (proxy.username) launchOptions.proxy.username = proxy.username;
+				if (proxy.password) launchOptions.proxy.password = proxy.password;
 			}
 
-			// Launch persistent context (NOT regular launch)
-			// This creates a real Chrome profile with history, making it undetectable
-			this.context = await chromium.launchPersistentContext(userDataDir, launchOptions);
-
-			return this.context;
+			const context = await chromium.launchPersistentContext(userDataDir, launchOptions);
+			this.contexts[slot] = context;
+			return context;
 		} catch (error) {
 			logger.error(`Failed to launch browser: ${error.message}`);
 			throw error;
@@ -236,7 +247,7 @@ class BrowserService {
 	 */
 	async createPage(context = null) {
 		try {
-			const actualContext = context || this.context;
+			const actualContext = context || this.contexts[0];
 
 			if (!actualContext) {
 				throw new Error('Browser context not initialized. Call launch() first.');
@@ -280,7 +291,7 @@ class BrowserService {
 	 */
 	async clearBrowserData(context = null) {
 		try {
-			const actualContext = context || this.context;
+			const actualContext = context || this.contexts[0];
 			
 			if (!actualContext) {
 				logger.warn('No browser context to clear');
@@ -384,14 +395,14 @@ class BrowserService {
 	}
 
 	/**
-	 * Completely wipe the browser profile folder
+	 * Completely wipe the browser profile folder for a slot
 	 * WARNING: This removes ALL data including the entire profile
-	 * Use this for maximum freshness, but profile will lose "age"
+	 * @param {number} [slotIndex=0]
 	 * @returns {Promise<void>}
 	 */
-	async wipeBrowserProfile() {
+	async wipeBrowserProfile(slotIndex = 0) {
 		try {
-			const userDataDir = path.join(__dirname, '../../.browser-profile');
+			const userDataDir = this.getProfileDir(slotIndex);
 			
 			// Check if profile exists
 			try {
@@ -417,76 +428,94 @@ class BrowserService {
 	}
 
 	/**
-	 * Close browser context gracefully
+	 * Close browser context gracefully. Finds the slot for this context and clears it.
 	 * Prevents "Restore pages?" dialog on next launch
-	 * @param {BrowserContext} context - Context to close (or use stored context)
+	 * @param {BrowserContext} [context=null] - Context to close
 	 * @returns {Promise<void>}
 	 */
 	async close(context = null) {
 		try {
-			const actualContext = context || this.context;
-			if (actualContext) {
-				// Close all pages first (graceful shutdown)
-				const pages = actualContext.pages();
-				for (const page of pages) {
-					try {
-						await page.close();
-					} catch (pageError) {
-						// Ignore page close errors
-					}
-				}
+			const actualContext = context || this.contexts[0];
+			if (!actualContext) return;
 
-				// Close context
-				await actualContext.close();
-				this.context = null;
-				
-				// Fix preferences after closing to mark clean exit
-				await this.fixChromePreferences();
-				
-				logger.info('✓ Browser closed gracefully');
+			let closedSlot = null;
+			for (let s = 0; s < this.maxSlots; s++) {
+				if (this.contexts[s] === actualContext) {
+					closedSlot = s;
+					break;
+				}
 			}
+
+			// Close all pages first (graceful shutdown)
+			const pages = actualContext.pages();
+			for (const page of pages) {
+				try {
+					await page.close();
+				} catch (pageError) {
+					// Ignore page close errors
+				}
+			}
+
+			await actualContext.close();
+			if (closedSlot !== null) {
+				this.contexts[closedSlot] = null;
+				await this.fixChromePreferences(closedSlot);
+			}
+
+			logger.info('✓ Browser closed gracefully');
 		} catch (error) {
 			logger.error(`Error closing browser: ${error.message}`);
 		}
 	}
 
 	/**
-	 * Emergency cleanup - force close everything
+	 * Emergency cleanup - force close all slots
 	 * Used when Ctrl+C is pressed or process is terminating
 	 * @returns {Promise<void>}
 	 */
 	async forceClose() {
 		try {
-			if (this.context) {
-				logger.info('Force closing browser...');
-				
-				// Try to close gracefully first
+			let anyOpen = false;
+			for (let s = 0; s < this.maxSlots; s++) {
+				const ctx = this.contexts[s];
+				if (ctx) {
+					anyOpen = true;
+					break;
+				}
+			}
+			if (!anyOpen) return;
+
+			logger.info('Force closing browser(s)...');
+
+			for (let s = 0; s < this.maxSlots; s++) {
+				const ctx = this.contexts[s];
+				if (!ctx) continue;
 				try {
-					const pages = this.context.pages();
+					const pages = ctx.pages();
 					await Promise.all(pages.map(p => p.close().catch(() => {})));
-					await this.context.close();
+					await ctx.close();
 				} catch (error) {
 					// Ignore errors during force close
 				}
-				
-				this.context = null;
-				
-				// CRITICAL: Fix preferences to prevent restore dialog
-				await this.fixChromePreferences();
-				
-				logger.info('✓ Browser force closed');
+				this.contexts[s] = null;
+				await this.fixChromePreferences(s).catch(() => {});
 			}
+
+			logger.info('✓ Browser(s) force closed');
 		} catch (error) {
 			// Silent fail on force close
 		}
 	}
 
 	/**
-	 * Get browser context
-	 * @returns {BrowserContext|null} - Current browser context
+	 * Get first active browser context (for backward compatibility)
+	 * @returns {BrowserContext|null}
 	 */
 	getBrowser() {
-		return this.context;
+		for (let s = 0; s < this.maxSlots; s++) {
+			if (this.contexts[s]) return this.contexts[s];
+		}
+		return null;
 	}
 }
 

@@ -7,6 +7,7 @@ process.on('warning', (warning) => {
 	console.warn(warning.name, warning.message);
 });
 
+const readline = require('readline');
 const chalk = require('chalk');
 const config = require('../config/config');
 const sheetMapping = require('../config/sheetMapping');
@@ -20,6 +21,23 @@ const browserService = require('./services/browser');
 const formFiller = require('./automation/formFiller');
 const dataSanitizer = require('./utils/dataSanitizer');
 
+/**
+ * Ask user how many concurrent tasks (1, 2, or 3). Used before run().
+ * @returns {Promise<number>}
+ */
+function askConcurrency() {
+	return new Promise((resolve) => {
+		const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+		rl.question('How many concurrent tasks? (1, 2, or 3) [1]: ', (answer) => {
+			rl.close();
+			const raw = (answer || '1').trim();
+			const n = parseInt(raw, 10);
+			const value = (Number.isNaN(n) || n < 1 || n > 3) ? 1 : Math.min(3, n);
+			resolve(value);
+		});
+	});
+}
+
 class MPCBot {
 	constructor() {
 		this.totalTasks = 0;
@@ -30,6 +48,10 @@ class MPCBot {
 		this.startTime = null;
 		this.proxyScheduler = null;
 		this.isShuttingDown = false;
+		/** Number of concurrent browser slots (1, 2, or 3) */
+		this.concurrency = 1;
+		/** Set by workers when max consecutive failures or stopOnError is triggered */
+		this.shouldStop = false;
 	}
 
 	/**
@@ -208,17 +230,26 @@ class MPCBot {
 	 * @param {Array<string>} headers - Column headers
 	 * @param {number} rowIndex - Index of the row (0-based)
 	 * @param {number} totalRows - Total number of rows
+	 * @param {{ proxy?: Object, proxyInfo?: Object, slotIndex?: number }} [allocation] - Pre-allocated proxy and slot (for concurrent runs)
 	 * @returns {Promise<Object>} - Result object
 	 */
-	async processTaskWithTimeout(rowData, headers, rowIndex, totalRows) {
+	async processTaskWithTimeout(rowData, headers, rowIndex, totalRows, allocation = null) {
 		const timeout = config.errorHandling.taskTimeout;
-		
-		return Promise.race([
-			this.processTask(rowData, headers, rowIndex, totalRows),
-			new Promise((_, reject) => 
-				setTimeout(() => reject(new Error(`Task timeout after ${timeout}ms`)), timeout)
-			)
-		]);
+		let timeoutId = null;
+		const timeoutPromise = new Promise((_, reject) => {
+			timeoutId = setTimeout(
+				() => reject(new Error(`Task timeout after ${timeout}ms`)),
+				timeout
+			);
+		});
+		try {
+			return await Promise.race([
+				this.processTask(rowData, headers, rowIndex, totalRows, allocation),
+				timeoutPromise
+			]);
+		} finally {
+			if (timeoutId != null) clearTimeout(timeoutId);
+		}
 	}
 
 	/**
@@ -227,9 +258,10 @@ class MPCBot {
 	 * @param {Array<string>} headers - Column headers
 	 * @param {number} rowIndex - Index of the row (0-based)
 	 * @param {number} totalRows - Total number of rows
+	 * @param {{ proxy?: Object, proxyInfo?: Object, slotIndex?: number }} [allocation] - Pre-allocated proxy and slot (for concurrent runs)
 	 * @returns {Promise<Object>} - Result object
 	 */
-	async processTask(rowData, headers, rowIndex, totalRows) {
+	async processTask(rowData, headers, rowIndex, totalRows, allocation = null) {
 		const taskNumber = rowIndex + 1;
 		const startTime = Date.now();
 		let browser = null;
@@ -251,40 +283,37 @@ class MPCBot {
 				logger.warn(`Could not update status to In Progress: ${statusError.message}`);
 			}
 
-			// Get next proxy from scheduler (if using proxies)
+			// Proxy: use pre-allocated allocation (concurrent) or get next from scheduler (sequential)
 			let proxy = null;
 			let proxyInfo = null;
-			
-			if (this.proxyScheduler) {
+			const slotIndex = allocation && allocation.slotIndex !== undefined ? allocation.slotIndex : 0;
+
+			if (allocation && allocation.proxy != null && allocation.proxyInfo != null) {
+				proxy = allocation.proxy;
+				proxyInfo = allocation.proxyInfo;
+			} else if (this.proxyScheduler) {
 				const proxyAllocation = this.proxyScheduler.getNext();
-				
 				if (!proxyAllocation) {
 					throw new Error('No proxy available - all proxies exhausted');
 				}
-
 				proxy = proxyAllocation.proxy;
 				const { proxyIndex, currentUsage, remaining } = proxyAllocation;
-
-				// Store proxy info for display
 				proxyInfo = {
 					index: proxyIndex + 1,
 					usage: currentUsage,
 					max: config.proxy.usesPerProxy,
 					remaining: remaining
 				};
-
-				// Log proxy usage to file only
 				logger.info(`Using Proxy #${proxyInfo.index} (Usage: ${proxyInfo.usage}/${proxyInfo.max}, Remaining: ${proxyInfo.remaining})`);
 			}
 
 			// Optional: Completely wipe browser profile before launch (if configured)
 			if (config.browser.wipeProfileOnStart) {
-				await browserService.wipeBrowserProfile();
+				await browserService.wipeBrowserProfile(slotIndex);
 			}
 
-			// Launch browser with proxy (or without if none available)
-			// NOTE: launch() automatically deletes persistent data files before starting
-			browser = await browserService.launch(proxy);
+			// Launch browser for this slot with proxy; each slot uses its own profile (fresh session)
+			browser = await browserService.launch(slotIndex, proxy);
 			page = await browserService.createPage(browser);
 
 			// Extract row data using sheet mappings
@@ -473,11 +502,16 @@ class MPCBot {
 	async run() {
 		try {
 			this.startTime = Date.now();
+			this.shouldStop = false;
+
+			// Ask concurrency (1, 2, or 3) and configure browser slots
+			this.concurrency = await askConcurrency();
+			browserService.setConcurrency(this.concurrency);
+			display.info(`Running with ${chalk.bold(this.concurrency)} concurrent task(s)`);
 
 			// Get maximum tasks we can run based on proxy availability
-			// If no proxies, process all valid tasks (no limit)
 			const maxTasks = this.proxyScheduler ? this.proxyScheduler.getTotalTasks() : Infinity;
-			
+
 			// Fetch all rows from sheet
 			const rows = await googleSheets.fetchRows();
 			const headers = await googleSheets.getHeaders();
@@ -500,105 +534,63 @@ class MPCBot {
 				return;
 			}
 
-			// Limit tasks to what we can handle with available proxies
-			// If no proxies (maxTasks = Infinity), process all valid tasks
+			// Limit tasks to proxy capacity and build work items with pre-allocated proxies.
+			// Round-robin order: task 0 → proxy 0, task 1 → proxy 1, ... task 4 → proxy 4, task 5 → proxy 0 (reuse), ...
+			// So with 5 proxies and 3 concurrent: first batch uses proxies 0,1,2; second batch uses 3,4,0 (2 new + 1 reused).
 			const tasksToProcess = validTasks.slice(0, maxTasks);
-			const skippedTasks = validTasks.length - tasksToProcess.length;
-
 			this.totalTasks = tasksToProcess.length;
 
-			// Calculate max tasks based on proxy configuration
+			const workItems = [];
+			for (const task of tasksToProcess) {
+				if (this.proxyScheduler && !this.proxyScheduler.hasMore()) break;
+				const alloc = this.proxyScheduler ? this.proxyScheduler.getNext() : null;
+				if (this.proxyScheduler && !alloc) break;
+				const proxyInfo = alloc ? {
+					index: alloc.proxyIndex + 1,
+					usage: alloc.currentUsage,
+					max: config.proxy.usesPerProxy,
+					remaining: alloc.remaining
+				} : null;
+				workItems.push({
+					task,
+					proxy: alloc ? alloc.proxy : null,
+					proxyInfo,
+				});
+			}
+
+			// If we had to limit by proxy, update totalTasks to actual work item count
+			this.totalTasks = workItems.length;
+			if (workItems.length === 0) {
+				display.warn('No tasks to run (no proxies available or no valid tasks).');
+				return;
+			}
+
 			const maxTasksForDisplay = this.proxyScheduler ? this.proxyScheduler.getTotalTasks() : this.totalTasks;
-
-			// Log to file what we're processing
 			if (this.proxyScheduler) {
-				logger.info(`Starting batch: ${this.totalTasks} tasks | Max capacity: ${maxTasksForDisplay} (${proxyManager.getCount()} proxies × ${config.proxy.usesPerProxy} uses)`);
+				logger.info(`Starting batch: ${this.totalTasks} tasks | Concurrency: ${this.concurrency} | Max capacity: ${maxTasksForDisplay}`);
 			} else {
-				logger.info(`Starting batch: ${this.totalTasks} tasks | No proxy limit`);
+				logger.info(`Starting batch: ${this.totalTasks} tasks | Concurrency: ${this.concurrency} | No proxy limit`);
 			}
 
-			// Show what we're about to process
-			if (tasksToProcess.length > 0) {
-				display.showTaskStartInfo(this.totalTasks, tasksToProcess[0].sheetRowNumber);
+			display.showTaskStartInfo(this.totalTasks, workItems[0].task.sheetRowNumber);
+
+			// Run concurrent workers with staggered start for the first 3: avoids all traffic hitting the site at once
+			const concurrency = Math.min(this.concurrency, workItems.length);
+			const STAGGER_MS_MIN = 1000;
+			const STAGGER_MS_MAX = 2000;
+			const workers = [];
+			for (let workerId = 0; workerId < concurrency; workerId++) {
+				workers.push((async () => {
+					// Only stagger the first 3 tasks: worker 0 starts immediately, 1 after 1–2s, 2 after 2–4s
+					if (workerId > 0) {
+						const staggerMs = workerId * (STAGGER_MS_MIN + Math.random() * (STAGGER_MS_MAX - STAGGER_MS_MIN));
+						await new Promise(r => setTimeout(r, Math.round(staggerMs)));
+					}
+					return this._runWorker(workerId, workItems, headers);
+				})());
 			}
+			await Promise.all(workers);
 
-			// Process each valid task
-			for (let taskNum = 0; taskNum < tasksToProcess.length; taskNum++) {
-				const task = tasksToProcess[taskNum];
-
-				// Check if we still have proxies available (only if using proxies)
-				if (this.proxyScheduler && !this.proxyScheduler.hasMore()) {
-					display.warn('All proxies exhausted. Stopping workflow.');
-					logger.warn('All proxies exhausted. Stopping workflow.');
-					break;
-				}
-
-				// Check if we've hit max consecutive failures
-				if (this.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
-					display.showMaxFailuresError(this.consecutiveFailures, config.errorHandling.maxConsecutiveFailures);
-					logger.error(`Maximum consecutive failures reached: ${this.consecutiveFailures}/${config.errorHandling.maxConsecutiveFailures}`);
-					break;
-				}
-
-				try {
-					// Process task with timeout wrapper
-					const result = await this.processTaskWithTimeout(
-						task.rowData,
-						headers,
-						task.rowIndex, // Use the actual row index for updating sheet
-						this.totalTasks,
-					);
-
-					// Check if task failed
-					if (result && !result.success) {
-						// Task failed but was handled gracefully
-						if (config.errorHandling.stopOnError) {
-							display.error('Stopping execution due to error (STOP_ON_ERROR=true)');
-							logger.error('Stopping execution due to error (STOP_ON_ERROR=true)');
-							break;
-						} else {
-							display.warn(`Skipping to next task (consecutive failures: ${this.consecutiveFailures})`);
-						}
-					}
-				} catch (error) {
-					// Timeout or unhandled error
-					display.error(`Task failed with unhandled error: ${error.message}`);
-					logger.error(`Task failed with unhandled error: ${error.message}`);
-					
-					// Try to mark as skipped in sheet
-					try {
-						const skipUpdateData = sheetMapping.buildUpdateData({
-							status: 'Skipped',
-							error: error.message,
-						});
-						await googleSheets.updateRow(task.rowIndex, skipUpdateData);
-					} catch (updateError) {
-						display.error(`Failed to update skipped status: ${updateError.message}`);
-						logger.error(`Failed to update skipped status: ${updateError.message}`);
-					}
-
-					// Force close any open browser
-					try {
-						await browserService.forceClose();
-					} catch (closeError) {
-						// Silent fail
-					}
-
-					this.skippedTasks++;
-					this.failedTasks++;
-					this.consecutiveFailures++;
-
-					if (config.errorHandling.stopOnError) {
-						display.error('Stopping execution due to error (STOP_ON_ERROR=true)');
-						logger.error('Stopping execution due to error (STOP_ON_ERROR=true)');
-						break;
-					} else {
-						display.warn(`Skipping to next task (consecutive failures: ${this.consecutiveFailures})`);
-					}
-				}
-			}
-
-			// Print summary
 			logger.separator();
 			logger.info('=== BATCH COMPLETED ===');
 			this.printSummary();
@@ -606,6 +598,93 @@ class MPCBot {
 			display.error(`Fatal error: ${error.message}`);
 			logger.error(`Fatal error: ${error.message}`);
 			throw error;
+		}
+	}
+
+	/**
+	 * Single worker: processes workItems at indices workerId, workerId + concurrency, ...
+	 * @param {number} workerId - Slot index (0 to concurrency-1)
+	 * @param {Array<{ task: Object, proxy: Object|null, proxyInfo: Object|null }>} workItems
+	 * @param {Array<string>} headers
+	 * @returns {Promise<void>}
+	 * @private
+	 */
+	async _runWorker(workerId, workItems, headers) {
+		const concurrency = Math.min(this.concurrency, workItems.length);
+		for (let i = workerId; i < workItems.length; i += concurrency) {
+			if (this.shouldStop) break;
+
+			const { task, proxy, proxyInfo } = workItems[i];
+			const allocation = { proxy, proxyInfo, slotIndex: workerId };
+
+			try {
+				const result = await this.processTaskWithTimeout(
+					task.rowData,
+					headers,
+					task.rowIndex,
+					this.totalTasks,
+					allocation
+				);
+
+				if (result && result.success) {
+					this.completedTasks++;
+					this.consecutiveFailures = 0;
+				} else {
+					this.failedTasks++;
+					this.consecutiveFailures++;
+					if (config.errorHandling.stopOnError) {
+						this.shouldStop = true;
+						display.error('Stopping execution due to error (STOP_ON_ERROR=true)');
+						logger.error('Stopping execution due to error (STOP_ON_ERROR=true)');
+					} else {
+						display.warn(`Skipping to next task (consecutive failures: ${this.consecutiveFailures})`);
+					}
+				}
+
+				if (this.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
+					this.shouldStop = true;
+					display.showMaxFailuresError(this.consecutiveFailures, config.errorHandling.maxConsecutiveFailures);
+					logger.error(`Maximum consecutive failures reached: ${this.consecutiveFailures}/${config.errorHandling.maxConsecutiveFailures}`);
+				}
+			} catch (error) {
+				display.error(`Task failed with unhandled error: ${error.message}`);
+				logger.error(`Task failed with unhandled error: ${error.message}`);
+
+				try {
+					const skipUpdateData = sheetMapping.buildUpdateData({
+						status: 'Skipped',
+						error: error.message,
+					});
+					await googleSheets.updateRow(task.rowIndex, skipUpdateData);
+				} catch (updateError) {
+					display.error(`Failed to update skipped status: ${updateError.message}`);
+					logger.error(`Failed to update skipped status: ${updateError.message}`);
+				}
+
+				try {
+					await browserService.forceClose();
+				} catch (closeError) {
+					// Silent fail
+				}
+
+				this.skippedTasks++;
+				this.failedTasks++;
+				this.consecutiveFailures++;
+
+				if (config.errorHandling.stopOnError) {
+					this.shouldStop = true;
+					display.error('Stopping execution due to error (STOP_ON_ERROR=true)');
+					logger.error('Stopping execution due to error (STOP_ON_ERROR=true)');
+				} else {
+					display.warn(`Skipping to next task (consecutive failures: ${this.consecutiveFailures})`);
+				}
+
+				if (this.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
+					this.shouldStop = true;
+					display.showMaxFailuresError(this.consecutiveFailures, config.errorHandling.maxConsecutiveFailures);
+					logger.error(`Maximum consecutive failures reached: ${this.consecutiveFailures}/${config.errorHandling.maxConsecutiveFailures}`);
+				}
+			}
 		}
 	}
 
