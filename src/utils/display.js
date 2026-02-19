@@ -75,6 +75,7 @@ class Display {
 	createTaskRunner(tasks, concurrent = 3) {
 		return new Listr(tasks, {
 			concurrent,
+			exitOnError: false,
 			rendererOptions: {
 				collapseSubtasks: false,
 				showSubtasks: true,

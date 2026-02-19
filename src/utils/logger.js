@@ -59,4 +59,9 @@ logger.logTaskFailure = (code, email, row, error) => {
   logger.error(`FAILED: ${code} with ${email} for row ${row} | Error: ${error}`);
 };
 
+logger.logTaskError = (taskNumber, status, error) => {
+  const msg = error && error.message ? error.message : String(error);
+  logger.error(`Task ${taskNumber} [${status}]: ${msg}`, error && error.stack ? { stack: error.stack } : {});
+};
+
 module.exports = logger;

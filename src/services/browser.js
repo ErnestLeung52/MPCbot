@@ -429,42 +429,52 @@ class BrowserService {
 
 	/**
 	 * Close browser context gracefully. Finds the slot for this context and clears it.
-	 * Prevents "Restore pages?" dialog on next launch
+	 * Prevents "Restore pages?" dialog on next launch.
+	 * Uses a 5-second timeout to prevent hanging when the browser process is already dead.
 	 * @param {BrowserContext} [context=null] - Context to close
 	 * @returns {Promise<void>}
 	 */
 	async close(context = null) {
+		const actualContext = context || this.contexts[0];
+		if (!actualContext) return;
+
+		// Find and immediately clear the slot so the next batch can reuse it
+		let closedSlot = null;
+		for (let s = 0; s < this.maxSlots; s++) {
+			if (this.contexts[s] === actualContext) {
+				closedSlot = s;
+				this.contexts[s] = null; // Free the slot immediately
+				break;
+			}
+		}
+
+		// Close all pages first (graceful shutdown), with a per-page timeout
+		const pages = actualContext.pages();
+		await Promise.all(pages.map(p =>
+			Promise.race([
+				p.close(),
+				new Promise(resolve => setTimeout(resolve, 2000)),
+			]).catch(() => {})
+		));
+
+		// Close the context with a 5-second timeout to prevent hanging
 		try {
-			const actualContext = context || this.contexts[0];
-			if (!actualContext) return;
-
-			let closedSlot = null;
-			for (let s = 0; s < this.maxSlots; s++) {
-				if (this.contexts[s] === actualContext) {
-					closedSlot = s;
-					break;
-				}
-			}
-
-			// Close all pages first (graceful shutdown)
-			const pages = actualContext.pages();
-			for (const page of pages) {
-				try {
-					await page.close();
-				} catch (pageError) {
-					// Ignore page close errors
-				}
-			}
-
-			await actualContext.close();
-			if (closedSlot !== null) {
-				this.contexts[closedSlot] = null;
-				await this.fixChromePreferences(closedSlot);
-			}
-
+			await Promise.race([
+				actualContext.close(),
+				new Promise((_, reject) => setTimeout(() => reject(new Error('close timeout')), 5000)),
+			]);
 			logger.info('✓ Browser closed gracefully');
 		} catch (error) {
-			logger.error(`Error closing browser: ${error.message}`);
+			if (error.message === 'close timeout') {
+				logger.warn('Browser close timed out, forcing shutdown');
+			} else {
+				logger.warn(`Browser close error (non-fatal): ${error.message}`);
+			}
+		}
+
+		// Fix Chrome preferences in the background — do not block the caller
+		if (closedSlot !== null) {
+			this.fixChromePreferences(closedSlot).catch(() => {});
 		}
 	}
 
@@ -490,15 +500,18 @@ class BrowserService {
 			for (let s = 0; s < this.maxSlots; s++) {
 				const ctx = this.contexts[s];
 				if (!ctx) continue;
+				this.contexts[s] = null; // Free slot immediately
 				try {
 					const pages = ctx.pages();
 					await Promise.all(pages.map(p => p.close().catch(() => {})));
-					await ctx.close();
-				} catch (error) {
+					await Promise.race([
+						ctx.close(),
+						new Promise(resolve => setTimeout(resolve, 3000)),
+					]);
+				} catch {
 					// Ignore errors during force close
 				}
-				this.contexts[s] = null;
-				await this.fixChromePreferences(s).catch(() => {});
+				this.fixChromePreferences(s).catch(() => {});
 			}
 
 			logger.info('✓ Browser(s) force closed');

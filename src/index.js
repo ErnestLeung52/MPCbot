@@ -578,81 +578,98 @@ class MPCBot {
 
 			display.showTaskStartInfo(this.totalTasks, workItems[0].task.sheetRowNumber);
 
-			// Create listr2 tasks for concurrent execution
-			const listrTasks = workItems.map((workItem, index) => ({
-				title: `Row ${workItem.task.sheetRowNumber} | ${workItem.task.email}`,
-				task: async (ctx, task) => {
-					// Stagger the first 3 tasks
-					if (index < 3 && index > 0) {
-						const STAGGER_MS_MIN = 1000;
-						const STAGGER_MS_MAX = 2000;
-						const staggerMs = index * (STAGGER_MS_MIN + Math.random() * (STAGGER_MS_MAX - STAGGER_MS_MIN));
-						await new Promise(r => setTimeout(r, Math.round(staggerMs)));
+			// Process in batches: open 3 browsers, run 3 tasks, wait for ALL to finish, then next batch.
+			// Listr2 is used only for display (progress); we use bot (not this) in listr task so context is correct for every batch.
+			const concurrency = Math.min(this.concurrency, workItems.length);
+			const STAGGER_MS_MIN = 1000;
+			const STAGGER_MS_MAX = 2000;
+			const bot = this;
+
+			for (let batchStart = 0; batchStart < workItems.length; batchStart += concurrency) {
+				if (bot.shouldStop) break;
+
+				const batch = workItems.slice(batchStart, batchStart + concurrency);
+				const batchNumber = Math.floor(batchStart / concurrency) + 1;
+				logger.info(`Starting batch ${batchNumber}: tasks ${batchStart + 1}-${batchStart + batch.length} (rows: ${batch.map(b => b.task.sheetRowNumber).join(', ')})`);
+
+				const ctx = { results: new Array(batch.length) };
+				const listrTasks = batch.map((workItem, batchIndex) => ({
+					title: `Row ${workItem.task.sheetRowNumber} | ${workItem.task.email}`,
+					task: async (ctx, listrTask) => {
+						if (batchIndex > 0) {
+							const staggerMs = batchIndex * (STAGGER_MS_MIN + Math.random() * (STAGGER_MS_MAX - STAGGER_MS_MIN));
+							await new Promise(r => setTimeout(r, Math.round(staggerMs)));
+						}
+
+						const allocation = {
+							proxy: workItem.proxy,
+							proxyInfo: workItem.proxyInfo,
+							slotIndex: batchIndex,
+						};
+
+						try {
+							const result = await bot.processTaskWithTimeout(
+								workItem.task.rowData,
+								headers,
+								workItem.task.rowIndex,
+								bot.totalTasks,
+								allocation,
+								listrTask
+							);
+							ctx.results[batchIndex] = { result, workItem, error: null };
+						} catch (error) {
+							ctx.results[batchIndex] = { result: null, workItem, error };
+						}
+					},
+				}));
+
+				const taskRunner = display.createTaskRunner(listrTasks, batch.length);
+				await taskRunner.run(ctx);
+
+				for (let i = 0; i < batch.length; i++) {
+					const item = ctx.results[i];
+					if (!item) continue;
+					const { result, workItem, error } = item;
+
+					// processTask already updates completed/failed counters for handled outcomes.
+					// We only handle truly unhandled errors here (timeout/unexpected throw before processTask return).
+					if (error) {
+						display.error(`Task failed with unhandled error: ${error.message}`);
+						logger.error(`Task failed with unhandled error: ${error.message}`);
+						try {
+							const skipUpdateData = sheetMapping.buildUpdateData({
+								status: 'Skipped',
+								error: error.message,
+							});
+							await googleSheets.updateRow(workItem.task.rowIndex, skipUpdateData);
+						} catch (updateError) {
+							logger.error(`Failed to update skipped status: ${updateError.message}`);
+						}
+						try {
+							await browserService.forceClose();
+						} catch (closeError) {
+							// Silent
+						}
+						bot.skippedTasks++;
+						bot.failedTasks++;
+						bot.consecutiveFailures++;
 					}
-					
-					const allocation = { 
-						proxy: workItem.proxy, 
-						proxyInfo: workItem.proxyInfo, 
-						slotIndex: index 
-					};
-					
-					try {
-						const result = await this.processTaskWithTimeout(
-							workItem.task.rowData,
-							headers,
-							workItem.task.rowIndex,
-							this.totalTasks,
-							allocation,
-							task // Pass listr task for progress updates
-						);
-						
-						if (result && result.success) {
-							this.completedTasks++;
-							this.consecutiveFailures = 0;
-							// Show final success message
-							display.showTaskSuccess(
-								workItem.task.sheetRowNumber,
-								result.redeemCode,
-								workItem.task.email,
-								workItem.proxyInfo
-							);
-						} else {
-							this.failedTasks++;
-							this.consecutiveFailures++;
-							// Show final failure message
-							display.showTaskFailed(
-								workItem.task.sheetRowNumber,
-								result.redeemCode || 'N/A',
-								workItem.task.email,
-								workItem.proxyInfo,
-								result.error || 'Unknown error'
-							);
-						}
-						
-						// Check for stopping conditions
-						if (this.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
-							this.shouldStop = true;
-						}
-					} catch (error) {
-						this.failedTasks++;
-						this.consecutiveFailures++;
-						
-						display.showTaskFailed(
-							workItem.task.sheetRowNumber,
-							'N/A',
-							workItem.task.email,
-							workItem.proxyInfo,
-							error.message
-						);
-						
-						logger.error(`Task failed: ${error.message}`);
+
+					if (config.errorHandling.stopOnError && (error || (result && !result.success))) {
+						bot.shouldStop = true;
+						display.error('Stopping execution due to error (STOP_ON_ERROR=true)');
+						logger.error('Stopping execution due to error (STOP_ON_ERROR=true)');
+					} else if (error || (result && !result.success)) {
+						display.warn(`Skipping to next batch (consecutive failures: ${bot.consecutiveFailures})`);
+					}
+
+					if (bot.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
+						bot.shouldStop = true;
+						display.showMaxFailuresError(bot.consecutiveFailures, config.errorHandling.maxConsecutiveFailures);
+						logger.error(`Maximum consecutive failures reached: ${bot.consecutiveFailures}/${config.errorHandling.maxConsecutiveFailures}`);
 					}
 				}
-			}));
-
-			// Run tasks with listr2
-			const taskRunner = display.createTaskRunner(listrTasks, Math.min(this.concurrency, workItems.length));
-			await taskRunner.run();
+			}
 
 			logger.separator();
 			logger.info('=== BATCH COMPLETED ===');
@@ -661,93 +678,6 @@ class MPCBot {
 			display.error(`Fatal error: ${error.message}`);
 			logger.error(`Fatal error: ${error.message}`);
 			throw error;
-		}
-	}
-
-	/**
-	 * Single worker: processes workItems at indices workerId, workerId + concurrency, ...
-	 * @param {number} workerId - Slot index (0 to concurrency-1)
-	 * @param {Array<{ task: Object, proxy: Object|null, proxyInfo: Object|null }>} workItems
-	 * @param {Array<string>} headers
-	 * @returns {Promise<void>}
-	 * @private
-	 */
-	async _runWorker(workerId, workItems, headers) {
-		const concurrency = Math.min(this.concurrency, workItems.length);
-		for (let i = workerId; i < workItems.length; i += concurrency) {
-			if (this.shouldStop) break;
-
-			const { task, proxy, proxyInfo } = workItems[i];
-			const allocation = { proxy, proxyInfo, slotIndex: workerId };
-
-			try {
-				const result = await this.processTaskWithTimeout(
-					task.rowData,
-					headers,
-					task.rowIndex,
-					this.totalTasks,
-					allocation
-				);
-
-				if (result && result.success) {
-					this.completedTasks++;
-					this.consecutiveFailures = 0;
-				} else {
-					this.failedTasks++;
-					this.consecutiveFailures++;
-					if (config.errorHandling.stopOnError) {
-						this.shouldStop = true;
-						display.error('Stopping execution due to error (STOP_ON_ERROR=true)');
-						logger.error('Stopping execution due to error (STOP_ON_ERROR=true)');
-					} else {
-						display.warn(`Skipping to next task (consecutive failures: ${this.consecutiveFailures})`);
-					}
-				}
-
-				if (this.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
-					this.shouldStop = true;
-					display.showMaxFailuresError(this.consecutiveFailures, config.errorHandling.maxConsecutiveFailures);
-					logger.error(`Maximum consecutive failures reached: ${this.consecutiveFailures}/${config.errorHandling.maxConsecutiveFailures}`);
-				}
-			} catch (error) {
-				display.error(`Task failed with unhandled error: ${error.message}`);
-				logger.error(`Task failed with unhandled error: ${error.message}`);
-
-				try {
-					const skipUpdateData = sheetMapping.buildUpdateData({
-						status: 'Skipped',
-						error: error.message,
-					});
-					await googleSheets.updateRow(task.rowIndex, skipUpdateData);
-				} catch (updateError) {
-					display.error(`Failed to update skipped status: ${updateError.message}`);
-					logger.error(`Failed to update skipped status: ${updateError.message}`);
-				}
-
-				try {
-					await browserService.forceClose();
-				} catch (closeError) {
-					// Silent fail
-				}
-
-				this.skippedTasks++;
-				this.failedTasks++;
-				this.consecutiveFailures++;
-
-				if (config.errorHandling.stopOnError) {
-					this.shouldStop = true;
-					display.error('Stopping execution due to error (STOP_ON_ERROR=true)');
-					logger.error('Stopping execution due to error (STOP_ON_ERROR=true)');
-				} else {
-					display.warn(`Skipping to next task (consecutive failures: ${this.consecutiveFailures})`);
-				}
-
-				if (this.consecutiveFailures >= config.errorHandling.maxConsecutiveFailures) {
-					this.shouldStop = true;
-					display.showMaxFailuresError(this.consecutiveFailures, config.errorHandling.maxConsecutiveFailures);
-					logger.error(`Maximum consecutive failures reached: ${this.consecutiveFailures}/${config.errorHandling.maxConsecutiveFailures}`);
-				}
-			}
 		}
 	}
 
