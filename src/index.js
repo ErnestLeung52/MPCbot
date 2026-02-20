@@ -113,6 +113,7 @@ class MPCBot {
 			const sheetsSpinner = display.createSpinner('Connecting to Google Sheets...');
 			await googleSheets.initialize();
 			const sheetName = config.googleSheets.sheetName || 'Sheet';
+
 			sheetsSpinner.succeed(`Google Sheets connected: ${chalk.green.bold(sheetName)}`);
 			logger.info(`✓ Connected to Google Sheets: "${sheetName}"`);
 
@@ -665,13 +666,7 @@ class MPCBot {
 					`Starting batch ${batchNumber}: tasks ${batchStart + 1}-${batchStart + batch.length} (rows: ${batch.map((b) => b.task.sheetRowNumber).join(', ')})`,
 				);
 
-				// Print batch separator BEFORE creating listr tasks
-				if (batchNumber > 1) {
-					console.log(''); // Add spacing between batches
-				}
-				console.log(chalk.dim(`  Batch ${batchNumber}/${totalBatches} `) + chalk.gray('─'.repeat(38)));
-
-				const ctx = { results: new Array(batch.length) };
+				const ctx = { results: new Array(batch.length), batchNumber, totalBatches };
 				const listrTasks = batch.map((workItem, batchIndex) => {
 					// Build title with proxy info
 					let title = `Row ${workItem.task.sheetRowNumber} | ${workItem.task.email}`;
@@ -713,10 +708,22 @@ class MPCBot {
 					};
 				});
 
+				// Print batch separator and reserve minimal vertical space for listr2 expansion
+				if (batchNumber > 1) {
+					console.log(''); // Spacing between batches
+				}
+				const batchSeparator =
+					chalk.dim(`  Batch ${batchNumber}/${totalBatches} `) + chalk.gray('─'.repeat(38));
+				console.log(batchSeparator);
+
+				// Reserve just 1 empty line - enough to prevent listr2 from overwriting the separator
+				console.log('');
+				console.log('');
+
 				const taskRunner = display.createTaskRunner(listrTasks, batch.length);
 				await taskRunner.run(ctx);
 
-				// Give Listr2's renderer a tick to fully flush its final output to the terminal
+				// Give Listr2's renderer time to fully flush
 				await new Promise((r) => setTimeout(r, 100));
 
 				// Process results for error handling

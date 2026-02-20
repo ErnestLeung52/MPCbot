@@ -107,7 +107,7 @@ class Display {
 			exitOnError: false,
 			rendererOptions: {
 				collapseSubtasks: false,
-				showSubtasks: true,
+				showSubtasks: false, // Don't show subtask output - prevents expansion
 				suffixSkips: false,
 				collapseErrors: false,
 			},
