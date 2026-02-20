@@ -22,19 +22,60 @@ const formFiller = require('./automation/formFiller');
 const dataSanitizer = require('./utils/dataSanitizer');
 
 /**
+ * Ask user to paste proxies into the terminal (one per line, IP:PORT:USER:PASS).
+ * Reads until the user submits an empty line.
+ * Saves valid proxies to proxies.json and returns the count.
+ * @returns {Promise<number>} - Number of proxies saved
+ */
+function askProxies() {
+	return new Promise((resolve) => {
+		const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+		display.showQuestion('Proxy Setup', 'Format: IP:PORT:USER:PASS (one per line, empty line to finish)');
+
+		const lines = [];
+
+		const prompt = () =>
+			rl.question('', (line) => {
+				const trimmed = line.trim();
+				if (trimmed === '') {
+					rl.close();
+					const raw = lines.join('\n');
+					if (!raw.trim()) {
+						display.showQuestionResult('Proxies', 'None (using direct IP)');
+						proxyManager.saveProxiesFromText('');
+						resolve(0);
+					} else {
+						const count = proxyManager.saveProxiesFromText(raw);
+						display.showQuestionResult('Proxies', `${count} loaded`);
+						resolve(count);
+					}
+				} else {
+					lines.push(trimmed);
+					prompt();
+				}
+			});
+
+		prompt();
+	});
+}
+
+/**
  * Ask user how many concurrent tasks (1, 2, or 3). Used before run().
  * @returns {Promise<number>}
  */
 function askConcurrency() {
 	return new Promise((resolve) => {
 		const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-		console.log();
 
-		rl.question('How many concurrent tasks? (1-3): ', (answer) => {
+		display.showQuestion('Concurrency', 'How many tasks to run in parallel? (1-3)');
+
+		rl.question('', (answer) => {
 			rl.close();
 			const raw = (answer || '1').trim();
 			const n = parseInt(raw, 10);
 			const value = Number.isNaN(n) || n < 1 || n > 3 ? 1 : Math.min(3, n);
+			display.showQuestionResult('Concurrency', `${value} task(s)`);
 			resolve(value);
 		});
 	});
@@ -62,6 +103,9 @@ class MPCBot {
 	 */
 	async initialize() {
 		try {
+			// Clear proxies from the previous run before starting fresh
+			proxyManager.clearProxies();
+
 			// Show banner
 			display.showBanner();
 
@@ -72,28 +116,27 @@ class MPCBot {
 			sheetsSpinner.succeed(`Google Sheets connected: ${chalk.green.bold(sheetName)}`);
 			logger.info(`✓ Connected to Google Sheets: "${sheetName}"`);
 
-			// Load proxies
-			const proxySpinner = display.createSpinner('Loading proxies...');
+			// display.success('Initialization complete');
+			sheetsSpinner.succeed('Initialization complete!');
+			logger.info('=== INITIALIZATION COMPLETE ===');
+
+			// Ask user to paste proxies, save to proxies.json, then load them
+			const proxyCount = await askProxies();
 			proxyManager.loadProxies();
-			const proxyCount = proxyManager.getCount();
 
 			// Initialize proxy scheduler if we have proxies
 			if (proxyCount === 0) {
-				proxySpinner.warn('No proxies loaded');
 				display.showNoProxyWarning();
 				logger.warn('No proxies loaded - using direct IP for all tasks');
-
-				// No proxy scheduler in this case
 				this.proxyScheduler = null;
 			} else {
-				proxySpinner.succeed(`Loaded ${chalk.green.bold(proxyCount)} proxies`);
-				logger.info(`✓ Loaded ${proxyCount} proxy/proxies`);
-
 				// Get all proxies for the scheduler
 				const proxies = [];
 				for (let i = 0; i < proxyCount; i++) {
 					proxies.push(proxyManager.getByIndex(i));
 				}
+
+				logger.info(`✓ Loaded ${proxyCount} proxy/proxies`);
 
 				// Create scheduler
 				const usesPerProxy = config.proxy.usesPerProxy;
@@ -104,10 +147,6 @@ class MPCBot {
 					`Proxy config: ${proxyCount} proxies × ${usesPerProxy} uses = ${this.proxyScheduler.getTotalTasks()} max tasks`,
 				);
 			}
-
-			proxySpinner.succeed(chalk('Initialization complete'));
-
-			logger.info('=== INITIALIZATION COMPLETE ===');
 		} catch (error) {
 			display.error(`Initialization Failed: ${error.message}`);
 			logger.error(`Initialization Failed: ${error.message}`);
@@ -434,6 +473,11 @@ class MPCBot {
 			logger.logTaskSuccess(redeemCode, email, sheetRow, cardData.cardNumber);
 			logger.info(`Card details: ${cardData.cardNumber} | Exp: ${cardData.exp} | CVV: ${cardData.cvv}`);
 
+			// Record proxy usage on successful task completion
+			if (proxy && proxy.server) {
+				proxyManager.incrementUsed(proxy.server);
+			}
+
 			// Close browser (unless keepOpen is enabled for testing)
 			// NOTE: Persistent data files will be deleted on next launch
 			if (!config.browser.keepOpen) {
@@ -532,9 +576,6 @@ class MPCBot {
 			// Ask concurrency (1, 2, or 3) and configure browser slots
 			this.concurrency = await askConcurrency();
 			browserService.setConcurrency(this.concurrency);
-			console.log();
-			display.info(`Running with ${chalk.green.bold(this.concurrency)} concurrent task(s)`);
-			console.log();
 
 			// Get maximum tasks we can run based on proxy availability
 			const maxTasks = this.proxyScheduler ? this.proxyScheduler.getTotalTasks() : Infinity;
@@ -734,6 +775,7 @@ class MPCBot {
 
 			logger.separator();
 			logger.info('=== BATCH COMPLETED ===');
+
 			this.printSummary();
 		} catch (error) {
 			display.error(`Fatal error: ${error.message}`);

@@ -11,6 +11,38 @@ class ProxyManager {
   }
 
   /**
+   * Parse a raw proxy string list (IP:PORT:USER:PASS per line) and save to proxies.json.
+   * Each entry is stored with a usedCount of 0.
+   * @param {string} rawText - Multi-line proxy string
+   * @returns {number} - Number of valid proxies saved
+   */
+  saveProxiesFromText(rawText) {
+    const lines = rawText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith('#'));
+
+    const entries = lines
+      .map((line) => {
+        const parts = line.split(':');
+        if (parts.length < 2) return null;
+        const [ip, port, username = '', password = ''] = parts;
+        const proxy = { server: `http://${ip}:${port}`, username, password };
+        return this.validateProxy(proxy) ? { ...proxy, usedCount: 0 } : null;
+      })
+      .filter(Boolean);
+
+    fs.writeFileSync(this.proxiesPath, JSON.stringify(entries, null, 2), 'utf8');
+    logger.info(`Saved ${entries.length} proxies to proxies.json`);
+
+    // Reset in-memory state so loadProxies() re-reads fresh data
+    this.proxies = [];
+    this.loaded = false;
+
+    return entries.length;
+  }
+
+  /**
    * Load proxy list from configuration file
    * @returns {void}
    */
@@ -28,29 +60,42 @@ class ProxyManager {
       }
 
       // Read and parse proxies file
-      const fileContent = fs.readFileSync(this.proxiesPath, 'utf8');
-      
-      // Parse text format (IP:PORT:USERNAME:PASSWORD per line)
-      const lines = fileContent.split('\n')
-        .map(line => line.trim())
-        .filter(line => line && !line.startsWith('#')); // Filter empty lines and comments
+      const fileContent = fs.readFileSync(this.proxiesPath, 'utf8').trim();
 
-      const proxiesData = lines.map(line => {
-        const parts = line.split(':');
-        if (parts.length >= 2) {
-          const ip = parts[0];
-          const port = parts[1];
-          const username = parts[2] || '';
-          const password = parts[3] || '';
+      if (!fileContent) {
+        this.proxies = [];
+        this.loaded = true;
+        return;
+      }
 
-          return {
-            server: `http://${ip}:${port}`,
-            username,
-            password
-          };
-        }
-        return null;
-      }).filter(proxy => proxy !== null);
+      // Support both JSON array (new format) and plain text (legacy IP:PORT:USER:PASS per line)
+      let proxiesData = [];
+      if (fileContent.startsWith('[') || fileContent.startsWith('{')) {
+        // JSON format
+        const parsed = JSON.parse(fileContent);
+        const arr = Array.isArray(parsed) ? parsed : [parsed];
+        proxiesData = arr.map((entry) => ({
+          server: entry.server,
+          username: entry.username || '',
+          password: entry.password || '',
+          usedCount: entry.usedCount || 0,
+        }));
+      } else {
+        // Legacy plain-text format
+        const lines = fileContent
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line && !line.startsWith('#'));
+
+        proxiesData = lines.map((line) => {
+          const parts = line.split(':');
+          if (parts.length >= 2) {
+            const [ip, port, username = '', password = ''] = parts;
+            return { server: `http://${ip}:${port}`, username, password, usedCount: 0 };
+          }
+          return null;
+        }).filter(Boolean);
+      }
 
       // Validate each proxy
       this.proxies = proxiesData.filter((proxy, index) => {
@@ -72,6 +117,49 @@ class ProxyManager {
       logger.error(`Failed to load proxies: ${error.message}`);
       this.proxies = [];
       this.loaded = true;
+    }
+  }
+
+  /**
+   * Increment the usedCount for a proxy by its server string and persist to disk.
+   * Called after a task completes successfully.
+   * @param {string} server - The proxy server string (e.g. "http://1.2.3.4:3128")
+   */
+  incrementUsed(server) {
+    try {
+      if (!fs.existsSync(this.proxiesPath)) return;
+      const fileContent = fs.readFileSync(this.proxiesPath, 'utf8').trim();
+      if (!fileContent) return;
+
+      const arr = JSON.parse(fileContent);
+      if (!Array.isArray(arr)) return;
+
+      const entry = arr.find((p) => p.server === server);
+      if (entry) {
+        entry.usedCount = (entry.usedCount || 0) + 1;
+        fs.writeFileSync(this.proxiesPath, JSON.stringify(arr, null, 2), 'utf8');
+        logger.info(`Proxy ${server} usedCount → ${entry.usedCount}`);
+      }
+
+      // Keep in-memory proxies in sync
+      const mem = this.proxies.find((p) => p.server === server);
+      if (mem) mem.usedCount = (mem.usedCount || 0) + 1;
+    } catch (error) {
+      logger.warn(`Could not increment proxy usage: ${error.message}`);
+    }
+  }
+
+  /**
+   * Clear all proxies from proxies.json (write empty array).
+   */
+  clearProxies() {
+    try {
+      fs.writeFileSync(this.proxiesPath, JSON.stringify([], null, 2), 'utf8');
+      this.proxies = [];
+      this.loaded = true;
+      logger.info('proxies.json cleared after all tasks completed');
+    } catch (error) {
+      logger.warn(`Could not clear proxies.json: ${error.message}`);
     }
   }
 

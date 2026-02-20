@@ -114,15 +114,47 @@ class Display {
 		});
 	}
 
+	// ─── questions & prompts ─────────────────────────────────────────────────────
+
+	showQuestion(text, hint = '') {
+		console.log();
+		console.log(chalk.cyan('┌─ ') + chalk.cyan.bold(text));
+		if (hint) {
+			console.log(chalk.cyan('│  ') + chalk.dim(hint));
+		}
+		console.log(chalk.cyan('└─'));
+	}
+
+	showQuestionResult(label, value) {
+		console.log(chalk.dim('  → ') + chalk.dim(label + ': ') + chalk.white.bold(value));
+		console.log();
+	}
+
+	showProxyList(proxies) {
+		if (proxies.length === 0) {
+			console.log(chalk.dim('  → No proxies configured'));
+			return;
+		}
+
+		console.log(chalk.dim('  → Loaded ') + chalk.white.bold(proxies.length) + chalk.dim(' proxy(ies)'));
+		proxies.forEach((proxy, idx) => {
+			const maskedUser = proxy.username ? proxy.username.substring(0, 3) + '***' : '';
+			const proxyStr = `${proxy.host}:${proxy.port}${maskedUser ? ' (' + maskedUser + ')' : ''}`;
+			console.log(chalk.dim(`     ${idx + 1}. `) + chalk.gray(proxyStr));
+		});
+		console.log();
+	}
+
 	// ─── init ────────────────────────────────────────────────────────────────────
 
 	showTaskStartInfo(taskCount, startRow) {
 		console.log(
-			chalk.dim('  Processing ') +
+			chalk.dim('  → Running ') +
 				chalk.white.bold(taskCount) +
-				chalk.dim(' task(s) starting from row ') +
+				chalk.dim(' task(s) from row ') +
 				chalk.white.bold(startRow),
 		);
+		console.log();
 	}
 
 	showProxyConfig(config) {
