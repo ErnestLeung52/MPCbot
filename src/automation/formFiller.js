@@ -242,36 +242,79 @@ class FormFiller {
   async extractCardData(page) {
     try {
       logger.info('Extracting card data from success modal...');
-      
-      // Wait for SVG to be fully loaded
+
       await page.waitForSelector('app-card-layout svg', { timeout: 10000 });
       await humanBehavior.randomDelay(1000, 2000);
 
-      // Extract card number (text at y="107" with specific font-size)
-      const cardNumber = await page.locator('app-card-layout svg text[y="107"]')
-        .textContent()
-        .catch(() => '');
+      const cardData = await page.evaluate(() => {
+        const svg = document.querySelector('app-card-layout svg g');
+        if (!svg) return null;
 
-      // Extract CVV (text at x="21" y="148")
-      const cvv = await page.locator('app-card-layout svg text[x="21"][y="148"]')
-        .textContent()
-        .catch(() => '');
+        const texts = Array.from(svg.querySelectorAll('text'));
 
-      // Extract expiration date (text at x="116" y="148")
-      const exp = await page.locator('app-card-layout svg text[x="116"][y="148"]')
-        .textContent()
-        .catch(() => '');
+        // --- Method 1: Label → next sibling ---
+        // The SVG contains label/value pairs in DOM order:
+        //   <text> Card Number: </text>  <text> 5447... </text>
+        //   <text> Expiration: </text>   <text> 04/2027 </text>
+        //   <text> CVV: </text>          <text> 058 </text>
+        // Find the label by its text content, then take the immediately following text element.
+        const findValueAfterLabel = (labelSubstring) => {
+          const labelIdx = texts.findIndex(el =>
+            el.textContent.trim().toLowerCase().includes(labelSubstring.toLowerCase())
+          );
+          if (labelIdx === -1 || labelIdx + 1 >= texts.length) return '';
+          return texts[labelIdx + 1].textContent.trim();
+        };
 
-      // Clean up the extracted data (remove extra spaces)
-      const cardData = {
-        cardNumber: cardNumber.trim().replace(/\s+/g, ''),
-        cvv: cvv.trim(),
-        exp: exp.trim()
-      };
+        const cardNumber = findValueAfterLabel('Card Number').replace(/\s+/g, '');
+        const exp        = findValueAfterLabel('Expiration');
+        const cvv        = findValueAfterLabel('CVV');
 
-      logger.info(`Card extracted: ${cardData.cardNumber}, CVV: ${cardData.cvv}, Exp: ${cardData.exp}`);
-      
-      return cardData;
+        if (cardNumber && exp && cvv) {
+          return { cardNumber, exp, cvv, method: 'label-sibling' };
+        }
+
+        // --- Method 2: Regex fallback ---
+        // Grab all text content from every element and pattern-match the values.
+        // Always a 16-digit Mastercard and 3-digit CVV.
+        const allText = texts.map(el => el.textContent.trim()).join(' ');
+
+        const cardMatch = allText.match(/\b(\d{16})\b/);
+        const expMatch  = allText.match(/\b(0[1-9]|1[0-2])\/(\d{4}|\d{2})\b/);
+
+        // Strip card number and expiry before searching for CVV to avoid false matches
+        const stripped = allText
+          .replace(cardMatch ? cardMatch[0] : '', '')
+          .replace(expMatch  ? expMatch[0]  : '', '');
+        const cvvMatch = stripped.match(/\b(\d{3})\b/);
+
+        return {
+          cardNumber: cardMatch ? cardMatch[1] : '',
+          exp:        expMatch  ? expMatch[0]  : '',
+          cvv:        cvvMatch  ? cvvMatch[1]  : '',
+          method: 'regex-fallback',
+        };
+      });
+
+      if (!cardData) {
+        throw new Error('app-card-layout svg g element not found in DOM');
+      }
+
+      logger.info(`Card extracted via ${cardData.method}: ${cardData.cardNumber}, CVV: ${cardData.cvv}, Exp: ${cardData.exp}`);
+
+      if (!cardData.cardNumber || !cardData.cvv || !cardData.exp) {
+        logger.warn('One or more card fields are empty — dumping SVG text elements for debugging');
+        await page.evaluate(() => {
+          const g = document.querySelector('app-card-layout svg g');
+          if (!g) return;
+          Array.from(g.querySelectorAll('text')).forEach((el, i) => {
+            console.log(`[SVG text #${i}] visibility=${el.getAttribute('visibility')} content="${el.textContent.trim()}"`);
+          });
+        });
+      }
+
+      const { method: _method, ...result } = cardData;
+      return result;
     } catch (error) {
       logger.error(`Failed to extract card data: ${error.message}`);
       throw error;
