@@ -126,7 +126,7 @@ function buildUpdateData({ status, extractedData = {}, error = null }) {
 module.exports = {
 	SHEET_NAME,
 	COLUMN_MAPPINGS,
-	
+
 	// Helper functions
 	extractRowData,
 	buildUpdateData,
