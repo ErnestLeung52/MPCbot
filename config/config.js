@@ -11,7 +11,7 @@ const config = {
 
   // Target Website - Base URL for redeem page
   // The redeem code will be appended to this URL: targetUrl + redeemCode
-  targetUrl: 'https://www.myprepaidcenter.com/redeem?ecode=',
+  targetUrl: process.env.TARGET_URL,
 
   // Browser Settings
   browser: {
@@ -66,8 +66,12 @@ function validateConfig() {
     errors.push('GOOGLE_SHEETS_ID is required in .env file');
   }
 
+  if (!config.googleSheets.sheetName) {
+    errors.push('SHEET_NAME is required in .env file');
+  }
+
   if (!config.targetUrl) {
-    errors.push('targetUrl is required in config.js');
+    errors.push('TARGET_URL is required in .env file');
   }
 
   if (errors.length > 0) {

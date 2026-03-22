@@ -2,16 +2,18 @@
  * Google Sheet and Form Field Mapping Configuration
  *
  * This file centralizes all sheet-related configuration:
- * - Sheet name (change this when switching sheets)
+ * - Sheet name (set via SHEET_NAME in .env)
  * - Column name mappings (map your sheet columns to form fields)
  * - Data transformations (e.g., state abbreviation to full name)
  */
+
+require('dotenv').config();
 
 // ============================================================================
 // SHEET CONFIGURATION
 // ============================================================================
 
-const SHEET_NAME = 'FB22 Int $4.07'; // Change this when using a different sheet
+const SHEET_NAME = process.env.SHEET_NAME;
 
 // ============================================================================
 // COLUMN MAPPINGS
@@ -28,7 +30,7 @@ const COLUMN_MAPPINGS = {
 	apartment: 'Apartment', // Your sheet column name for apartment (optional)
 	city: 'City', // Your sheet column name for city
 	state: 'State', // Your sheet column name for state (accepts abbreviations)
-	zipCode: 'ZipCode', // Your sheet column name for zip code
+	zipCode: 'Zip Code', // Your sheet column name for zip code
 	phone: 'Phone', // Your sheet column name for phone
 	email: 'Email', // Your sheet column name for email
 
@@ -36,7 +38,7 @@ const COLUMN_MAPPINGS = {
 	status: 'Status', // Column to store processing status (In Progress, Success, Failed)
 	amount: 'Amount', // Column to store card amount
 	cardNumber: 'Card Number', // Column to store card number
-	exp: 'Exp', // Column to store card expiration date
+	exp: 'EXP', // Column to store card expiration date
 	cvv: 'CVV', // Column to store card CVV
 	timestamp: 'Timestamp', // Column to store processing timestamp
 	error: 'Error', // Column to store error messages
