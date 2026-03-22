@@ -210,54 +210,55 @@ class MPCBot {
 				continue;
 			}
 
-			// Get and trim values
-			const redeemCode = (rowData[redeemCodeIndex] || '').trim();
-			const status = (rowData[statusIndex] || '').trim();
-			const email = (rowData[emailIndex] || '').trim();
-			const firstName = firstNameIndex !== -1 ? (rowData[firstNameIndex] || '').trim() : '';
-			const lastName = lastNameIndex !== -1 ? (rowData[lastNameIndex] || '').trim() : '';
+		// Get and trim values
+		const redeemCode = (rowData[redeemCodeIndex] || '').trim();
+		const status = (rowData[statusIndex] || '').trim();
+		const email = (rowData[emailIndex] || '').trim();
+		const firstName = firstNameIndex !== -1 ? (rowData[firstNameIndex] || '').trim() : '';
+		const lastName = lastNameIndex !== -1 ? (rowData[lastNameIndex] || '').trim() : '';
 
-			// Rule 2: Both RedeemCode and Status are empty → Skip (no code to redeem)
-			if (!redeemCode && !status) {
-				stats.skippedNoCode++;
-				continue;
-			}
-
-			// Rule 3: RedeemCode exists but is not 12 characters → Skip (invalid code)
-			if (redeemCode && redeemCode.length !== 12) {
-				stats.skippedInvalidCode++;
-				continue;
-			}
-
-			// Rule 4: RedeemCode is 12 chars but Status is NOT empty → Skip (already processed/in progress/failed)
-			if (redeemCode && redeemCode.length === 12 && status) {
-				stats.skippedAlreadyProcessed++;
-				continue;
-			}
-
-			// Rule 5: Check required fields are present
-			if (!email) {
-				logger.warn(`Row ${sheetRowNumber}: Skipping - Missing email address`);
-				stats.skippedMissingData++;
-				continue;
-			}
-
-			if (!firstName || !lastName) {
-				logger.warn(`Row ${sheetRowNumber} (${email}): Skipping - Missing first name or last name`);
-				stats.skippedMissingData++;
-				continue;
-			}
-
-			// Rule 6: All conditions met → Valid task!
-			validTasks.push({
-				rowIndex: i, // 0-based index for array access
-				sheetRowNumber: sheetRowNumber, // Actual row number in sheet (for logging)
-				rowData: rowData,
-				email: email,
-				redeemCode: redeemCode,
-			});
-			stats.valid++;
+		// Rule 2: Status is NOT empty → Skip (already processed/in progress/failed)
+		// This must come FIRST to skip any row with a status label
+		if (status) {
+			stats.skippedAlreadyProcessed++;
+			continue;
 		}
+
+		// Rule 3: RedeemCode is empty → Skip (no code to redeem)
+		if (!redeemCode) {
+			stats.skippedNoCode++;
+			continue;
+		}
+
+		// Rule 4: RedeemCode exists but is not 12 characters → Skip (invalid code)
+		if (redeemCode.length !== 12) {
+			stats.skippedInvalidCode++;
+			continue;
+		}
+
+		// Rule 5: Check required fields are present
+		if (!email) {
+			logger.warn(`Row ${sheetRowNumber}: Skipping - Missing email address`);
+			stats.skippedMissingData++;
+			continue;
+		}
+
+		if (!firstName || !lastName) {
+			logger.warn(`Row ${sheetRowNumber} (${email}): Skipping - Missing first name or last name`);
+			stats.skippedMissingData++;
+			continue;
+		}
+
+		// Rule 6: All conditions met → Valid task!
+		validTasks.push({
+			rowIndex: i, // 0-based index for array access
+			sheetRowNumber: sheetRowNumber, // Actual row number in sheet (for logging)
+			rowData: rowData,
+			email: email,
+			redeemCode: redeemCode,
+		});
+		stats.valid++;
+	}
 
 		return validTasks;
 	}
